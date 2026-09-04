@@ -166,6 +166,7 @@ printf '%s\n' \
 | `ios_device_launch`           | Launch with arguments and environment                | **yes** |
 | `ios_device_terminate`        | Kill a running app by bundle id                      | **yes** |
 | `ios_device_pull_container`   | Copy an app's data container to this Mac             | **yes** |
+| `ios_device_restart_wda`      | Stop and restart the WebDriverAgent runner           | **yes** |
 
 Plus one resource, `ios-device://diagnostics`, carrying the same payload as the tool so a client
 can attach the device's standing state instead of spending a call on it.
@@ -211,7 +212,14 @@ reaching for coordinates.
 - **A locked phone captures nothing** and refuses every launch. The failure says so, but it is
   the first thing to check.
 - **The runner dies with its terminal.** `scripts/wda.sh run` is not a daemon. When taps stop
-  working, that window is usually why.
+  working, that window is usually why. `ios_device_restart_wda` starts one detached instead, which
+  survives that but logs to a file rather than to your screen.
+- **The automation grant is per XCTest session, not per request.** Enabling
+  Settings → Developer → Enable UI Automation does nothing for a runner that is already up: the
+  grant is handed out when the session starts and never revisited. Measured on iOS 26.6.1 with the
+  toggle off, `POST /session` still succeeds and `/wda/activeAppInfo` on that fresh session still
+  answers `pid: 0`, so no amount of re-sessioning reaches it. Toggle, then restart the runner — in
+  that order.
 - **A relaunch without `terminate_existing` ignores your arguments.** It foregrounds the running
   process instead, so the flags you just passed have no effect and nothing says so. It defaults
   to on for this reason.

@@ -78,7 +78,7 @@ jobs:
           #    ABSENT — not merely refused. A refusal still lets a model try,
           #    retry and reason about a way around it.
           cp /tmp/unconfigured.json /tmp/readonly.json
-          ! grep -qE '"name":"ios_device_(tap|swipe|type|press_button|install|launch|terminate|pull_container)' /tmp/readonly.json \
+          ! grep -qE '"name":"ios_device_(tap|swipe|type|press_button|install|launch|terminate|pull_container|restart_wda)' /tmp/readonly.json \
             || { echo "driving tools leaked without IOS_DEVICE_ALLOW_WRITES"; exit 1; }
 
           # 3. Turning the flag ON must only ever ADD. A gate written the wrong

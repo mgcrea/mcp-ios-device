@@ -5,6 +5,7 @@ import { DeviceClient } from "#/client/device";
 import type { ExecImpl, Logger } from "#/client/exec";
 import type { Config } from "#/config";
 import { registerTools } from "#/tools/index";
+import type { SpawnRunner } from "#/tools/runner";
 
 export const SERVER_NAME = BUILD_INFO.name;
 export const SERVER_VERSION = BUILD_INFO.version;
@@ -15,6 +16,8 @@ export type CreateServerOptions = {
   exec?: ExecImpl;
   /** Override HTTP to WebDriverAgent (tests). */
   fetch?: typeof fetch;
+  /** Override starting the WebDriverAgent runner (tests): no process is spawned. */
+  spawnRunner?: SpawnRunner;
   logger?: Logger;
 };
 
@@ -24,10 +27,10 @@ export type CreatedServer = {
 };
 
 /**
- * A pure factory. The two injectable seams — `exec` and `fetch` — are the whole
- * reason the test suite can drive real tools through the real SDK with no
- * device, no Xcode and no WebDriverAgent. Nothing below `config.ts` reads
- * `process.env`.
+ * A pure factory. The injectable seams — `exec`, `fetch` and `spawnRunner` —
+ * are the whole reason the test suite can drive real tools through the real SDK
+ * with no device, no Xcode, no WebDriverAgent and no process left running.
+ * Nothing below `config.ts` reads `process.env`.
  */
 export const createServer = (opts: CreateServerOptions): CreatedServer => {
   const { config } = opts;
@@ -46,7 +49,7 @@ export const createServer = (opts: CreateServerOptions): CreatedServer => {
     ...(opts.logger ? { logger: opts.logger } : {}),
   });
 
-  registerTools(server, client, { config, allowWrites: config.allowWrites });
+  registerTools(server, client, { config, allowWrites: config.allowWrites }, opts.spawnRunner);
 
   return { server, client };
 };

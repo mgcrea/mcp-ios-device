@@ -7,6 +7,7 @@ import {
   DEVICE_ID,
   execMock,
   sampleSource,
+  spawnMock,
   wdaMock,
   type FetchLike,
 } from "#test/helpers";
@@ -27,6 +28,7 @@ const WRITE_TOOLS = [
   "ios_device_launch",
   "ios_device_press_button",
   "ios_device_pull_container",
+  "ios_device_restart_wda",
   "ios_device_swipe",
   "ios_device_tap",
   "ios_device_tap_element",
@@ -72,6 +74,16 @@ const wdaFailure = (message: string): Response =>
  * automation grant missing: the domain and code carry the meaning, and the
  * `error` field is the generic one.
  */
+/**
+ * What `/source` returns when WebDriverAgent holds no application at all. Reads
+ * like a claim about the app under test; is nothing of the kind.
+ */
+const deadHandle = (): Response =>
+  wdaFailure(
+    "The previously found element \"Application 'local.pid.0'\" is not present in the current " +
+      "view anymore. Original error: Application local.pid.0 is not running",
+  );
+
 const unauthorized = (): FetchLike =>
   wdaMock({
     "/screenshot": () =>
@@ -158,6 +170,19 @@ describe("surviving a broken environment", () => {
     expect(String(result.remedy)).toContain("Enable UI Automation");
   });
 
+  // A dead handle that survives a fresh session is not a dead handle at all —
+  // it is what an unauthorized runner looks like through /source. Reporting it
+  // as "Application local.pid.0 is not running" sends the reader to relaunch an
+  // app that is running perfectly well.
+  it("blames the runner, not the app, when a fresh session hits the same dead handle", async () => {
+    const result = await (
+      await connect({}, { fetch: wdaMock({ "/source": deadHandle }) })
+    ).call("ios_device_ui_tree");
+    expect(result.isToolError).toBe(true);
+    expect(String(result.error)).toContain("cannot see any foreground application");
+    expect(String(result.remedy)).toContain("Enable UI Automation");
+  });
+
   // WDA keeps the app it attached to, and reports its death as a `local.pid.0`
   // handle rather than as anything about the session. Left unmatched, that made
   // ui_tree permanently broken after any relaunch.
@@ -187,6 +212,55 @@ describe("surviving a broken environment", () => {
     expect(result.isToolError).toBe(false);
     expect(attempts).toBe(2);
     expect(log.filter((entry) => entry.path === "/session")).toHaveLength(2);
+  });
+});
+
+describe("restarting the runner", () => {
+  // The grant is handed to an XCTest session at startup and never revisited, so
+  // a restart is the only thing that can change `authorized`. That makes this
+  // tool the one write here whose whole purpose is a process boundary.
+  it("spawns the runner and reports it authorized once it answers", async () => {
+    const spawned: { command: string; args: string[]; env: Record<string, string> }[] = [];
+    const result = await (
+      await connect(WRITES, { spawnRunner: spawnMock(spawned) })
+    ).call("ios_device_restart_wda", { wait_seconds: 5 });
+
+    expect(result.isToolError).toBe(false);
+    expect(result.reachable).toBe(true);
+    expect(result.authorized).toBe(true);
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.command).toMatch(/wda\.sh$/);
+    expect(spawned[0]?.args).toEqual(["run"]);
+    // Pinned, so the script cannot resolve a different device than the tool did.
+    expect(spawned[0]?.env["IOS_DEVICE_ID"]).toBe("00008150-000A43CE1447801C");
+  });
+
+  it("says so when the fresh runner is still refused, rather than reporting success", async () => {
+    const result = await (
+      await connect(WRITES, { fetch: unauthorized(), spawnRunner: spawnMock() })
+    ).call("ios_device_restart_wda", { wait_seconds: 5 });
+
+    expect(result.reachable).toBe(true);
+    expect(result.authorized).toBe(false);
+    expect(String(result.remedy)).toContain("Enable UI Automation");
+  });
+
+  // Two runners on one device is worse than none: they take turns answering and
+  // every tool becomes intermittent.
+  it("stops an existing runner for this device before starting one", async () => {
+    const ps = `  999999 /usr/bin/xcodebuild test-without-building -destination id=00008150-000A43CE1447801C\n`;
+    const result = await (
+      await connect(WRITES, {
+        exec: execMock({ __ps: ps }),
+        spawnRunner: spawnMock(),
+      })
+    ).call("ios_device_restart_wda", { wait_seconds: 5 });
+
+    expect(result.stopped).toEqual([999999]);
+  });
+
+  it("is absent without the write flag, like every other tool that changes something", async () => {
+    expect(await (await connect()).toolNames()).not.toContain("ios_device_restart_wda");
   });
 });
 

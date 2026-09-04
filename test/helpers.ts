@@ -5,6 +5,7 @@ import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import type { ExecImpl, ExecResult } from "#/client/exec";
 import { loadConfig, type Config } from "#/config";
 import { createServer } from "#/server";
+import type { SpawnRunner } from "#/tools/runner";
 
 /**
  * A config path that cannot exist, passed on every `loadConfig` in the suite.
@@ -103,6 +104,14 @@ export const execMock = (
   const table = { ...defaultDevicectl, ...overrides };
   return async (path: string, args: string[]): Promise<ExecResult> => {
     log.push([path, ...args]);
+
+    // `ps` is read by the runner tool to find an existing WebDriverAgent. It
+    // takes no --json-output, so it must be answered before the devicectl path.
+    // Matched on the whole basename, not a suffix: `sips` ends in "ps" too, and
+    // swallowing it here breaks every screenshot in the suite.
+    if (path.split("/").pop() === "ps") {
+      return { stdout: (overrides["__ps"] as string | undefined) ?? "", stderr: "" };
+    }
 
     if (path.endsWith("sips")) {
       // `-g pixelWidth -g pixelHeight <file>` reads dimensions; anything else is
@@ -229,15 +238,26 @@ export const wdaMock =
 
 export type Harness = Awaited<ReturnType<typeof connect>>;
 
+/** Records what would have been spawned, and starts nothing. */
+export const spawnMock =
+  (log: { command: string; args: string[]; env: Record<string, string> }[] = []): SpawnRunner =>
+  async (command, args, { env }) => {
+    log.push({ command, args, env });
+    return 4242;
+  };
+
 export const connect = async (
   env: Record<string, string> = {},
-  opts: { exec?: ExecImpl; fetch?: FetchLike } = {},
+  opts: { exec?: ExecImpl; fetch?: FetchLike; spawnRunner?: SpawnRunner } = {},
 ) => {
   const config: Config = loadConfig(env, ABSENT_CONFIG);
   const { server } = createServer({
     config,
     exec: opts.exec ?? execMock(),
     fetch: (opts.fetch ?? wdaMock()) as unknown as typeof fetch,
+    // Defaulted, never optional: a test that reached the real one would leave an
+    // xcodebuild running on whoever ran the suite.
+    spawnRunner: opts.spawnRunner ?? spawnMock(),
   });
 
   // Both halves of a linked pair must come from the *same* package: v2 exports

@@ -182,7 +182,36 @@ export class WdaClient {
       if (!(err instanceof WdaError) || !isStaleSession(err)) throw err;
       this.logger?.warn?.("wda session expired, recreating");
       this.sessionId = undefined;
-      return fn(await this.session());
+      try {
+        return await fn(await this.session());
+      } catch (retry) {
+        // A brand-new session hitting the same wall means the handle was never
+        // stale. Measured against an unauthorized runner: `POST /session`
+        // succeeds, and `/wda/activeAppInfo` on that fresh session still answers
+        // `pid: 0, bundleId: "local.pid.0"` — WebDriverAgent cannot see any
+        // foreground app, because it is not allowed to look.
+        //
+        // Left alone this surfaces as "Application local.pid.0 is not running",
+        // which reads as a claim about the app under test and sends the reader
+        // to relaunch it. The failed retry is what distinguishes the two, so it
+        // is the only place the distinction can be drawn.
+        if (retry instanceof WdaError && isStaleSession(retry) && retry.remedy === undefined) {
+          throw new WdaError(
+            `${retry.message} — and a session created fresh for the retry hit the same wall, so ` +
+              "this is not a stale handle: WebDriverAgent cannot see any foreground application.",
+            {
+              status: retry.status,
+              ...(retry.wdaCode ? { wdaCode: retry.wdaCode } : {}),
+              remedy:
+                "WebDriverAgent reporting no foreground app on a session it has just created is " +
+                "usually an unauthorized runner rather than a missing app — check " +
+                `ios_device_diagnostics for \`wda.authorized\`. ${UI_AUTOMATION_REMEDY} ` +
+                START_RUNNER_REMEDY,
+            },
+          );
+        }
+        throw retry;
+      }
     }
   }
 

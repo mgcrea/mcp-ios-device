@@ -6,6 +6,7 @@ import { registerAppTools } from "#/tools/app";
 import { registerDiagnosticsTools } from "#/tools/diagnostics";
 import { registerInputTools } from "#/tools/input";
 import { registerInspectTools } from "#/tools/inspect";
+import { registerRunnerTools, type SpawnRunner } from "#/tools/runner";
 
 export type ToolContext = {
   config: Config;
@@ -31,7 +32,12 @@ export type ToolContext = {
  * decision — the runner can start and stop while this server is connected, and a
  * tool that vanished at startup would never come back.
  */
-export const registerTools = (server: McpServer, client: DeviceClient, ctx: ToolContext): void => {
+export const registerTools = (
+  server: McpServer,
+  client: DeviceClient,
+  ctx: ToolContext,
+  spawnRunner?: SpawnRunner,
+): void => {
   registerDiagnosticsTools(server, client, ctx);
   registerInspectTools(server, client, ctx);
 
@@ -39,4 +45,7 @@ export const registerTools = (server: McpServer, client: DeviceClient, ctx: Tool
 
   registerInputTools(server, client, ctx);
   registerAppTools(server, client, ctx);
+  // Write-gated with the rest: it kills a process the user may be watching
+  // and starts one that outlives this server.
+  registerRunnerTools(server, client, ctx, spawnRunner);
 };
