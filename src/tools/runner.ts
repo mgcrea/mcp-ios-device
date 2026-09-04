@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { open, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { McpServer } from "@modelcontextprotocol/server";
@@ -38,10 +38,21 @@ export type SpawnRunner = (
 const defaultSpawn: SpawnRunner = async (command, args, { logPath, env }) => {
   const log = await open(logPath, "a");
   try {
+    // Written before anything can fail, so the log always says which run it
+    // belongs to. Without it a failed spawn leaves a file that looks like the
+    // last successful run's, which is worse than an empty one.
+    await log.write(`\n=== ios_device_restart_wda ${new Date().toISOString()} ===\n`);
     const child = spawn(command, args, {
       detached: true,
       stdio: ["ignore", log.fd, log.fd],
       env,
+    });
+    // `spawn` reports a failure to launch — a missing interpreter, a bad path —
+    // asynchronously on this event, not by throwing. Unhandled it becomes an
+    // uncaught exception that takes the whole server down some milliseconds
+    // after this function has already returned a pid and reported success.
+    child.on("error", (err) => {
+      void log.write(`spawn failed: ${err.message}\n`).catch(() => {});
     });
     child.unref();
     if (child.pid === undefined) {
@@ -125,11 +136,14 @@ export const registerRunnerTools = (
           .number()
           .int()
           .min(0)
-          .max(300)
-          .default(75)
+          .max(45)
+          .default(0)
           .describe(
-            "How long to wait for the runner to answer before returning. 0 returns as soon as it " +
-              "is spawned. Returning early is not a failure — poll ios_device_diagnostics.",
+            "How long to wait for the runner to answer before returning. Defaults to 0 — spawn " +
+              "and return — because a runner takes tens of seconds to come up and an MCP call " +
+              "that waits that long is killed by the transport before it can answer. Poll " +
+              "ios_device_diagnostics for `wda.authorized` instead. Capped well under a typical " +
+              "60s transport timeout for the same reason.",
           ),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
@@ -162,10 +176,23 @@ export const registerRunnerTools = (
         const pid = await (spawnRunner ?? defaultSpawn)(script, ["run"], {
           logPath,
           // The full environment, unlike every other child here: `wda.sh` needs
-          // `node`, `git` and `xcrun` off a real PATH, and `HOME` to find the
-          // checkout it built into. IOS_DEVICE_ID pins the device so the script
-          // cannot resolve a different one than the tool just did.
-          env: { ...process.env, IOS_DEVICE_ID: target.udid } as Record<string, string>,
+          // `git` and `xcrun` off a real PATH, and `HOME` to find the checkout
+          // it built into. IOS_DEVICE_ID pins the device so the script cannot
+          // resolve a different one than the tool just did.
+          //
+          // `node` is the one it cannot be assumed to find. A host that embeds
+          // its own runtime — Bastion runs this server off
+          // `Bastion.app/Contents/Resources/node` — leaves nothing called
+          // `node` on PATH at all, and every spawn died instantly with
+          // "node: command not found" while the tool reported a pid and
+          // success. `NODE` is the explicit answer and the PATH entry is the
+          // fallback for anything else that shells out.
+          env: {
+            ...process.env,
+            IOS_DEVICE_ID: target.udid,
+            NODE: process.execPath,
+            PATH: `${dirname(process.execPath)}:${process.env["PATH"] ?? ""}`,
+          } as Record<string, string>,
         });
 
         const wda = client.wda(target);

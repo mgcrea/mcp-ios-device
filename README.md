@@ -250,6 +250,10 @@ Start with `ios_device_diagnostics`; it names which half is wrong. Then:
   that cannot take a single screenshot. Turn on **Settings → Developer → Enable UI Automation** on
   the device, then restart `scripts/wda.sh run`. `ios_device_diagnostics` probes this directly and
   reports it as `wda.authorized`.
+- **`node: command not found` in the runner log** — `scripts/wda.sh` parses devicectl's JSON with
+  node, and a host that embeds its own runtime leaves nothing called `node` on `PATH`.
+  `ios_device_restart_wda` passes `NODE` and extends `PATH` for exactly this; running the script by
+  hand from such an environment needs `NODE=/path/to/node`.
 - **`ui_tree` is empty** — the screen may genuinely have no controls; try `detail: "labelled"`.
   A truncated answer always says so in `truncated`.
 - **Provisioning expired** — a development profile lasts a year on a paid team. Re-run

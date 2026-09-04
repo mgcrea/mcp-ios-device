@@ -1,3 +1,5 @@
+import { dirname } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { loadConfig } from "#/config";
@@ -233,6 +235,33 @@ describe("restarting the runner", () => {
     expect(spawned[0]?.args).toEqual(["run"]);
     // Pinned, so the script cannot resolve a different device than the tool did.
     expect(spawned[0]?.env["IOS_DEVICE_ID"]).toBe("00008150-000A43CE1447801C");
+  });
+
+  // Measured against Bastion, which runs this server off the node inside its own
+  // bundle: nothing called `node` is on PATH, `wda.sh` parses devicectl's JSON
+  // with it, and every spawn died with "node: command not found" while the tool
+  // cheerfully reported a pid and success.
+  it("hands the script a node it can actually find", async () => {
+    const spawned: { command: string; args: string[]; env: Record<string, string> }[] = [];
+    await (
+      await connect(WRITES, { spawnRunner: spawnMock(spawned) })
+    ).call("ios_device_restart_wda");
+
+    const env = spawned[0]?.env ?? {};
+    expect(env["NODE"]).toBe(process.execPath);
+    expect(env["PATH"]?.split(":")[0]).toBe(dirname(process.execPath));
+  });
+
+  // 75s was the old default and no MCP call survives it: the transport gives up
+  // around 60s, so the tool was killed before it could report the pid it had
+  // already spawned.
+  it("defaults to spawning and returning, not to waiting past the transport timeout", async () => {
+    const tools = await (await connect(WRITES)).tools();
+    const schema = tools.find((t) => t.name === "ios_device_restart_wda")?.inputSchema as {
+      properties?: { wait_seconds?: { default?: number; maximum?: number } };
+    };
+    expect(schema.properties?.wait_seconds?.default).toBe(0);
+    expect(schema.properties?.wait_seconds?.maximum).toBeLessThanOrEqual(45);
   });
 
   it("says so when the fresh runner is still refused, rather than reporting success", async () => {

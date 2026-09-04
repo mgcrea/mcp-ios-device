@@ -15,6 +15,7 @@
 # Environment:
 #   IOS_DEVICE_TEAM_ID   Apple Developer team, e.g. 75QE9PRT3V   (required for setup)
 #   IOS_DEVICE_ID        CoreDevice identifier or UDID           (default: the only connected device)
+#   NODE                 node binary to parse JSON with          (default: node off PATH)
 #   WDA_DIR              checkout location                       (default: ~/.cache/mcp-ios-device/WebDriverAgent)
 #   WDA_REF              git tag to pin                          (default: v16.12.3)
 set -euo pipefail
@@ -23,6 +24,10 @@ WDA_DIR="${WDA_DIR:-$HOME/.cache/mcp-ios-device/WebDriverAgent}"
 WDA_REF="${WDA_REF:-v16.12.3}"
 DERIVED="${WDA_DIR}/.build"
 PORT="${IOS_DEVICE_WDA_PORT:-8100}"
+# Not always on PATH: a host that embeds its own runtime (Bastion runs the MCP
+# server off the copy inside its bundle) leaves nothing called `node` to find,
+# and every invocation below fails with "node: command not found".
+NODE="${NODE:-node}"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -32,7 +37,7 @@ die() { echo "error: $*" >&2; exit 1; }
 device_json() {
   local out; out="$(mktemp -d)/devices.json"
   xcrun devicectl list devices --quiet --json-output "$out" >/dev/null
-  node -e '
+  "$NODE" -e '
     const devices = require(process.argv[1]).result.devices;
     const want = process.env.IOS_DEVICE_ID;
     const connected = devices.filter((d) => d.connectionProperties?.tunnelState === "connected");
@@ -54,7 +59,7 @@ device_json() {
   ' "$out"
 }
 
-field() { node -e 'const d=JSON.parse(process.argv[1]);process.stdout.write(String(d[process.argv[2]]??""))' "$1" "$2"; }
+field() { "$NODE" -e 'const d=JSON.parse(process.argv[1]);process.stdout.write(String(d[process.argv[2]]??""))' "$1" "$2"; }
 
 cmd_setup() {
   [ -n "${IOS_DEVICE_TEAM_ID:-}" ] || die "set IOS_DEVICE_TEAM_ID to your Apple Developer team id (e.g. 75QE9PRT3V)"
