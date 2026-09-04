@@ -112,6 +112,10 @@ const INTERACTIVE_TYPES = new Set([
   "Cell",
   "CheckBox",
   "DatePicker",
+  // A home-screen app icon and a keyboard key are both plain taps, and both are
+  // reported as their own type rather than as buttons.
+  "Icon",
+  "Key",
   "Link",
   "MenuItem",
   "PickerWheel",
@@ -128,12 +132,22 @@ const INTERACTIVE_TYPES = new Set([
   "Toggle",
 ]);
 
-/** `XCUIElementTypeButton` → `Button`. Half the bytes, none of the meaning. */
+/**
+ * `XCUIElementTypeButton` → `Button`. A live WDA already reports the short form
+ * in `/source`; the long one is what predicates and older builds use, so both
+ * have to land on the same name or a `types` filter matches nothing.
+ */
 export const shortType = (type: string | undefined): string =>
   (type ?? "Unknown").replace(/^XCUIElementType/, "");
 
-/** WDA reports booleans as the strings "true"/"false" in JSON source output. */
-const isTrue = (value: string | boolean | undefined): boolean => value === true || value === "true";
+/**
+ * WDA's JSON source reports booleans as the strings `"1"` and `"0"` — not
+ * `"true"`/`"false"`, and not JSON booleans. Measured against WDA 16.12.3 on
+ * iOS 26.6.1; accepting all three costs nothing and the narrow version of this
+ * check silently filtered out every element on the screen.
+ */
+const isTrue = (value: string | boolean | undefined): boolean =>
+  value === true || value === "true" || value === "1";
 
 const textOf = (value: unknown): string | undefined => {
   if (value === null || value === undefined) return undefined;

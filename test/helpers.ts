@@ -134,42 +134,47 @@ export const execMock = (
 export const TINY_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
+/**
+ * Shaped like a real `GET /source?format=json`, measured against WDA 16.12.3 on
+ * iOS 26.6.1: booleans are the strings "1"/"0", and `type` comes back already
+ * stripped of its `XCUIElementType` prefix.
+ */
 export const sampleSource = {
-  type: "XCUIElementTypeApplication",
+  type: "Application",
   name: "Canopy",
   rect: { x: 0, y: 0, width: 440, height: 956 },
-  isVisible: "true",
-  isEnabled: "true",
+  isVisible: "1",
+  isEnabled: "1",
   children: [
     {
-      type: "XCUIElementTypeButton",
+      type: "Button",
       name: "garden.tab",
       label: "Garden",
       rawIdentifier: "garden.tab",
       rect: { x: 20, y: 900, width: 100, height: 40 },
-      isVisible: "true",
-      isEnabled: "true",
+      isVisible: "1",
+      isEnabled: "1",
     },
     {
-      type: "XCUIElementTypeButton",
+      type: "Button",
       label: "Today",
       rect: { x: 140, y: 900, width: 100, height: 40 },
-      isVisible: "true",
-      isEnabled: "false",
+      isVisible: "1",
+      isEnabled: "0",
     },
     {
-      type: "XCUIElementTypeStaticText",
+      type: "StaticText",
       label: "Monstera deliciosa",
       rect: { x: 20, y: 200, width: 300, height: 24 },
-      isVisible: "true",
-      isEnabled: "true",
+      isVisible: "1",
+      isEnabled: "1",
     },
     {
-      type: "XCUIElementTypeButton",
+      type: "Button",
       label: "Hidden",
       rect: { x: 0, y: 2000, width: 40, height: 40 },
-      isVisible: "false",
-      isEnabled: "true",
+      isVisible: "0",
+      isEnabled: "1",
     },
   ],
 };

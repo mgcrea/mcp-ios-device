@@ -179,6 +179,23 @@ ios_device_pull_container { bundle_id: "io.mgcrea.Canopy",
 Prefer `tap_element` over `tap`: a label or identifier survives the list scrolling and the copy
 being reworded, and a coordinate does not.
 
+## What it costs
+
+Measured against an iPhone 17 Pro Max on iOS 26.6.1, WebDriverAgent 16.12.3:
+
+| Call                         | Time    | Payload                                         |
+| ---------------------------- | ------- | ----------------------------------------------- |
+| `list_devices`               | ~50 ms  | 1.1 KB, from a 10.7 KB `devicectl` envelope     |
+| `get_display_info`           | ~165 ms | 200 B                                           |
+| `screenshot`                 | ~0.6 s  | 440x956 JPEG, ~90 KB — roughly 540 image tokens |
+| `ui_tree` on an app screen   | ~1.3 s  | 4 KB, from a 154 KB `/source`                   |
+| `ui_tree` on the home screen | ~5.7 s  | 2.2 KB, 23 elements                             |
+| `tap_element`                | ~2 s    | plus a screenshot unless turned off             |
+
+The home screen is the slow case for `/source`; a normal app screen is four times
+faster. If `ui_tree` is the bottleneck in a loop, narrow it with `contains` rather than
+reaching for coordinates.
+
 ## Traps worth knowing
 
 - **Coordinates are points, everywhere.** A default screenshot is scaled to exactly the point
@@ -196,6 +213,9 @@ being reworded, and a coordinate does not.
   deliberately.
 - **An alert swallows every tap** while reporting nothing useful. Action results include an
   `alert` field when one is on screen.
+- **WebDriverAgent reports booleans as `"1"` and `"0"`**, not `true`/`false`. Only relevant
+  if you parse `/source` yourself — this server already handles it — but the narrow version
+  of that check returns an empty tree that looks exactly like a working answer.
 - **The tunnel is not the Wi-Fi address.** `tunnel.address` is an `fd…::1` on a `utun`
   interface, only routable from this Mac, and only while CoreDevice keeps it up.
 

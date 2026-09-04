@@ -175,6 +175,43 @@ describe("ui tree", () => {
     expect(elements[0]?.tap).toEqual([70, 920]);
   });
 
+  it('reads WebDriverAgent\'s "1"/"0" booleans, not just true/false', async () => {
+    // The narrow version of this check filtered out every element on a real
+    // screen and returned an empty tree that looked like a working answer.
+    const live = {
+      type: "Application",
+      rect: { x: 0, y: 0, width: 440, height: 956 },
+      isVisible: "1",
+      isEnabled: "1",
+      children: [
+        {
+          type: "Icon",
+          label: "Weather",
+          rawIdentifier: "Weather",
+          rect: { x: 29, y: 91, width: 181, height: 205 },
+          isVisible: "1",
+          isEnabled: "1",
+        },
+      ],
+    };
+    const harness = await connect(
+      {},
+      {
+        fetch: wdaMock({
+          "/source": () =>
+            new Response(JSON.stringify({ value: live, sessionId: "S1" }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+        }),
+      },
+    );
+    const result = await harness.call("ios_device_ui_tree");
+    expect(result.elements).toEqual([
+      { type: "Icon", label: "Weather", rect: [29, 91, 181, 205], tap: [120, 194] },
+    ]);
+  });
+
   it("drops elements XCUITest marks invisible, because they cannot be tapped", async () => {
     const result = await (await connect()).call("ios_device_ui_tree");
     expect(JSON.stringify(result)).not.toContain("Hidden");
@@ -194,17 +231,17 @@ describe("ui tree", () => {
     // A real screen has far more than the four nodes the default fixture has;
     // this is what the cap exists for.
     const crowded = {
-      type: "XCUIElementTypeApplication",
+      type: "Application",
       rect: { x: 0, y: 0, width: 440, height: 956 },
-      isVisible: "true",
-      isEnabled: "true",
+      isVisible: "1",
+      isEnabled: "1",
       children: Array.from({ length: 60 }, (_, i) => ({
-        type: "XCUIElementTypeButton",
+        type: "Button",
         label: `Plant number ${i}`,
         rawIdentifier: `plant.row.${i}`,
         rect: { x: 20, y: i * 12, width: 400, height: 44 },
-        isVisible: "true",
-        isEnabled: "true",
+        isVisible: "1",
+        isEnabled: "1",
       })),
     };
     const harness = await connect(
