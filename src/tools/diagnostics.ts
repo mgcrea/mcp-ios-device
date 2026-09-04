@@ -38,33 +38,6 @@ export type Diagnosis = {
 };
 
 /**
- * The device a poke should aim at when none could be resolved.
- *
- * A dropped tunnel does not merely set `tunnel.state`: `summarizeDevice` derives
- * `state` from it, so the phone stops counting as "connected" and
- * `resolveDevice` rejects with "No connected device" before there is a target.
- * That is the ordinary case — one phone on the desk, tunnel gone — and it is
- * worth a look at the paired devices instead.
- *
- * Ambiguity is deliberately left alone. Poking one of several dormant devices
- * would revive an arbitrary one, and a configured `IOS_DEVICE_ID` that this
- * function cannot see is the reason the single-device case is not assumed to be
- * the only one worth rescuing.
- */
-const dormantCandidate = (
-  devices: DeviceSummary[],
-  hint: string | undefined,
-): DeviceSummary | undefined => {
-  const dormant = devices.filter((device) => device.tunnel.state !== "connected");
-  if (hint) {
-    return dormant.find(
-      (device) => device.id === hint || device.udid === hint || device.name === hint,
-    );
-  }
-  return dormant.length === 1 ? dormant[0] : undefined;
-};
-
-/**
  * The whole point of this tool is that **it never throws**. Every other tool
  * here fails when the device is asleep, the tunnel is down or the runner is not
  * installed, and each of those failures looks much like the others from the
@@ -102,59 +75,42 @@ export const diagnose = async (
     nextSteps.push("Connect the device by USB, unlock it, and tap Trust when prompted.");
   }
 
+  // `resolveDevice` wakes a dormant device itself now — the tunnel-poking used
+  // to happen here, as a bolt-on retry after resolution had already failed, but
+  // every other tool calls `resolveDevice` too and none of them got the benefit
+  // of that retry: `ios_device_screenshot` on a phone with an idle tunnel threw
+  // "no CoreDevice tunnel address" while this tool alone reported the same
+  // phone as recoverable.
+  //
+  // Whether a poke happened is derived rather than tracked through a second
+  // one: this mirrors `resolveDevice`'s own branching over the same passive
+  // read, not the poke itself, so it stays accurate whether resolution
+  // succeeded or — a dormant device that failed to wake — still threw.
+  const before = devices;
+  const attemptedPoke = deviceHint
+    ? before.find((d) => d.id === deviceHint || d.udid === deviceHint || d.name === deviceHint)
+        ?.state !== "connected"
+    : before.every((d) => d.state !== "connected") && before.some((d) => d.state === "paired");
+
   let target: DeviceSummary | undefined;
-  let unresolved: unknown;
   try {
     target = await client.resolveDevice(deviceHint);
   } catch (err) {
-    unresolved = err;
-  }
-
-  // Poked before anything is judged, not after. The reading above comes from
-  // `devicectl list devices`, which is a passive read of CoreDevice's cache and
-  // can never bring a tunnel up; `pokeTunnel` acquires the usage assertion that
-  // can, then re-reads. Judging the first reading is what made this tool report
-  // "open Xcode once" while the `lockState` call below it silently did the very
-  // thing that would have fixed it — and the next call see a healthy tunnel.
-  //
-  // Both outcomes of a dropped tunnel are rescued here, because `summarizeDevice`
-  // derives `state` from `tunnelState`: the device stops looking "connected" at
-  // all, so `resolveDevice` throws and there is no target left to poke. Reporting
-  // that as "no connected device" is the same mistake one level up.
-  //
-  // Gated so the healthy path stays free, and the resolution failure is reported
-  // only after the poke has had its turn. Developer Mode and the DDI are re-judged
-  // off the second reading too: same cached record, same staleness.
-  const candidate =
-    target === undefined
-      ? dormantCandidate(devices, deviceHint)
-      : target.tunnel.state !== "connected"
-        ? target
-        : undefined;
-  let tunnelPoked = false;
-  if (candidate) {
-    devices = await client.pokeTunnel(candidate);
-    tunnelPoked = true;
-    try {
-      target = await client.resolveDevice(deviceHint);
-      unresolved = undefined;
-    } catch {
-      // The poke did not take, and the device still does not count as connected.
-      // It is nonetheless the one this report is about, and adopting it is what
-      // gives the tunnel check below something to name: without it the whole
-      // verdict block is skipped and the report degrades to "none has a live
-      // connection ... reconnect it", which mentions neither the tunnel nor what
-      // to try next. The resolution error is dropped as the weaker of the two.
-      target = devices.find((device) => device.id === candidate.id) ?? candidate;
-      unresolved = undefined;
-    }
-  }
-
-  if (target === undefined && unresolved !== undefined) {
-    problems.push(unresolved instanceof Error ? unresolved.message : String(unresolved));
-    const remedy = (unresolved as { remedy?: string }).remedy;
+    problems.push(err instanceof Error ? err.message : String(err));
+    const remedy = (err as { remedy?: string }).remedy;
     if (remedy) nextSteps.push(remedy);
   }
+
+  // Refreshed whenever a poke was attempted, whether or not it worked: a device
+  // that failed to wake still deserves this report to reflect its real state
+  // rather than the passive read from before the attempt, and Developer Mode
+  // and the DDI come off the same cached record and go stale the same way.
+  if (attemptedPoke) {
+    devices = await client.listDevices({ fresh: true });
+    const resolved = target;
+    if (resolved) target = devices.find((d) => d.id === resolved.id) ?? resolved;
+  }
+  const tunnelPoked = attemptedPoke;
 
   if (target) {
     if (target.developerMode !== "enabled") {
@@ -337,8 +293,10 @@ export const registerDiagnosticsTools = (
       title: "iOS Device: List Devices",
       description:
         "List the iPhones and iPads CoreDevice knows about, with the identifier the other tools " +
-        "take. `state` is the field that matters: only `connected` devices can be driven, and the " +
-        "`tunnel.address` on those is how the screen lane reaches WebDriverAgent.",
+        "take. `state` is the field that matters: a `paired` device gets one wake-up attempt when " +
+        "it is the one resolved, so it usually does not need attention, but only a `connected` " +
+        "device has a `tunnel.address` right now — that is how the screen lane reaches " +
+        "WebDriverAgent.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },

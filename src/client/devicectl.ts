@@ -103,7 +103,11 @@ export class Devicectl {
    * concurrently, and a shared `--json-output` path would have one read the
    * other's answer with nothing at all looking wrong.
    */
-  private async run(args: string[], trailing: string[] = []): Promise<unknown> {
+  private async run(
+    args: string[],
+    trailing: string[] = [],
+    timeoutMs: number = this.timeoutMs,
+  ): Promise<unknown> {
     const dir = await mkdtemp(join(tmpdir(), "devicectl-"));
     const jsonPath = join(dir, "out.json");
     // `--quiet` and `--json-output` go BEFORE `trailing`, never after. The one
@@ -114,7 +118,7 @@ export class Devicectl {
     const argv = ["devicectl", ...args, "--quiet", "--json-output", jsonPath, ...trailing];
     this.logger?.debug?.("devicectl", args.join(" "));
     try {
-      await this.exec(this.xcrunPath, argv, this.timeoutMs);
+      await this.exec(this.xcrunPath, argv, timeoutMs);
       return await this.readEnvelope(jsonPath, args);
     } catch (err) {
       // devicectl still writes the envelope on failure, and its `error.userInfo`
@@ -204,8 +208,13 @@ export class Devicectl {
    */
   async lockState(
     device: string,
+    opts: { timeoutMs?: number } = {},
   ): Promise<{ passcodeRequired?: boolean; unlockedSinceBoot?: boolean }> {
-    return (await this.run(["device", "info", "lockState", "--device", device])) as {
+    return (await this.run(
+      ["device", "info", "lockState", "--device", device],
+      [],
+      opts.timeoutMs,
+    )) as {
       passcodeRequired?: boolean;
       unlockedSinceBoot?: boolean;
     };

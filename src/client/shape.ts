@@ -23,6 +23,13 @@ export type DeviceSummary = {
   tunnel: { state: string | undefined; address: string | undefined };
   developerMode: string | undefined;
   ddiUsable: boolean | undefined;
+  /**
+   * When CoreDevice last had a live tunnel to this device, ISO 8601. Undefined
+   * for one it has never reached. This is what orders which paired-but-dormant
+   * device gets woken first when more than one qualifies — the one seen most
+   * recently is the one most likely to still be around.
+   */
+  lastConnectionDate: string | undefined;
 };
 
 /**
@@ -50,6 +57,7 @@ export const summarizeDevice = (device: RawDevice): DeviceSummary => {
     tunnel: { state: connection.tunnelState, address: connection.tunnelIPAddress },
     developerMode: properties.developerModeStatus,
     ddiUsable: properties.ddiServicesAvailable,
+    lastConnectionDate: connection.lastConnectionDate,
   };
 };
 

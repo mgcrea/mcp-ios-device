@@ -408,11 +408,13 @@ describe("device resolution", () => {
             identifier: "A",
             connectionProperties: { tunnelState: "connected" },
             deviceProperties: { name: "One" },
+            hardwareProperties: { platform: "iOS" },
           },
           {
             identifier: "B",
             connectionProperties: { tunnelState: "connected" },
             deviceProperties: { name: "Two" },
+            hardwareProperties: { platform: "iOS" },
           },
         ],
       },
@@ -427,6 +429,87 @@ describe("device resolution", () => {
     const result = await (await connect()).call("ios_device_get_display_info", { device: "nope" });
     expect(result.isToolError).toBe(true);
     expect(String(result.remedy)).toContain(DEVICE_ID);
+  });
+
+  // The bug Canopy's own build script hit and fixed independently: `list
+  // devices` is a passive read that never opens a tunnel, so a phone reached
+  // over Wi-Fi reads `disconnected` the moment it goes idle. Every tool used to
+  // fail outright on exactly that phone — only `ios_device_diagnostics` poked
+  // and recovered, because the poke lived there instead of in `resolveDevice`.
+  // This is the same recovery, proven on a tool that actually drives the
+  // screen rather than merely reporting on it.
+  it("wakes a dormant device with no hint, so a screenshot works on a phone whose tunnel went idle", async () => {
+    const harness = await connect({}, { exec: tunnelStates(["unavailable", "connected"]) });
+    const result = await harness.call("ios_device_screenshot");
+    expect(result.isToolError).toBeFalsy();
+    expect(result.hasImage).toBe(true);
+  });
+
+  it("wakes a device named by hint, so it does not throw a stale tunnel-address error", async () => {
+    const harness = await connect({}, { exec: tunnelStates(["unavailable", "connected"]) });
+    const result = await harness.call("ios_device_screenshot", { device: DEVICE_ID });
+    expect(result.isToolError).toBeFalsy();
+    expect(result.hasImage).toBe(true);
+  });
+
+  it("gives up on a device that never wakes, with a remedy naming CoreDevice's own discovery", async () => {
+    const harness = await connect({}, { exec: tunnelStates(["unavailable"]) });
+    const result = await harness.call("ios_device_screenshot");
+    expect(result.isToolError).toBe(true);
+    expect(String(result.remedy)).toContain("xcdevice");
+  });
+
+  it("wakes every paired candidate, not just one — unlike the old single-candidate rule", async () => {
+    const log: string[][] = [];
+    const two = execMock(
+      {
+        "list devices": {
+          devices: [
+            {
+              identifier: "A",
+              connectionProperties: { pairingState: "paired", lastConnectionDate: "2026-01-01" },
+              deviceProperties: { name: "Older" },
+              hardwareProperties: { platform: "iOS" },
+            },
+            {
+              identifier: "B",
+              connectionProperties: { pairingState: "paired", lastConnectionDate: "2026-06-01" },
+              deviceProperties: { name: "Newer" },
+              hardwareProperties: { platform: "iOS" },
+            },
+          ],
+        },
+      },
+      log,
+    );
+    await (await connect({}, { exec: two })).call("ios_device_get_display_info");
+    const pokes = log.filter((entry) => entry.join(" ").includes("device info lockState"));
+    // Both candidates are woken, not just one. `pokeTunnel` dispatches every
+    // wake-up call with a single `Promise.allSettled`, which this cannot
+    // observe directly — but if it fell back to a sequential loop that
+    // stopped at the first attempt, only "A" would show up here.
+    expect(pokes.map((entry) => entry[entry.indexOf("--device") + 1])).toEqual(
+      expect.arrayContaining(["A", "B"]),
+    );
+  });
+
+  it("does not count a paired Apple Watch or Apple TV as a candidate", async () => {
+    const withWatch = execMock({
+      "list devices": {
+        devices: [
+          connectedDevice,
+          {
+            identifier: "WATCH",
+            connectionProperties: { tunnelState: "connected" },
+            deviceProperties: { name: "Olivier's Watch" },
+            hardwareProperties: { platform: "watchOS" },
+          },
+        ],
+      },
+    });
+    const result = await (await connect({}, { exec: withWatch })).call("ios_device_list_devices");
+    const ids = (result.devices as { id: string }[]).map((d) => d.id);
+    expect(ids).toEqual([DEVICE_ID]);
   });
 });
 

@@ -41,6 +41,7 @@ export const createServer = (opts: CreateServerOptions): CreatedServer => {
     sipsPath: config.sipsPath,
     execTimeoutMs: config.execTimeoutMs,
     wdaTimeoutMs: config.wdaTimeoutMs,
+    warmTimeoutMs: config.warmTimeoutMs,
     wdaPort: config.wdaPort,
     ...(config.wdaUrl ? { wdaUrl: config.wdaUrl } : {}),
     ...(config.deviceId ? { defaultDeviceId: config.deviceId } : {}),

@@ -36,6 +36,14 @@ const ConfigSchema = z
     wdaPort: z.number().int().min(1).max(65535).default(8100),
     /** WDA answers `/source` on a busy screen slowly; 30s is not generous. */
     wdaTimeoutMs: z.number().int().min(1000).max(600_000).default(30_000),
+    /**
+     * How long a wake-up poke (`devicectl device info lockState`) waits before
+     * giving up on one candidate. Short on purpose: this runs against every
+     * paired-but-dormant device when none is already connected, in parallel, so
+     * a device that is genuinely gone should fail fast rather than hold up
+     * resolution for as long as a real command would be allowed to run.
+     */
+    warmTimeoutMs: z.number().int().min(1000).max(600_000).default(15_000),
     /** `devicectl install` on a large app genuinely takes minutes. */
     execTimeoutMs: z.number().int().min(1000).max(1_800_000).default(120_000),
     allowWrites: z.boolean().default(false),
@@ -136,6 +144,7 @@ export const loadConfig = (
     wdaUrl: pick(trimmed(env.IOS_DEVICE_WDA_URL), "wdaUrl"),
     wdaPort: pick(parseIntOpt(env.IOS_DEVICE_WDA_PORT), "wdaPort"),
     wdaTimeoutMs: pick(parseIntOpt(env.IOS_DEVICE_WDA_TIMEOUT_MS), "wdaTimeoutMs"),
+    warmTimeoutMs: pick(parseIntOpt(env.IOS_DEVICE_WARM_TIMEOUT_MS), "warmTimeoutMs"),
     execTimeoutMs: pick(parseIntOpt(env.IOS_DEVICE_TIMEOUT_MS), "execTimeoutMs"),
     allowWrites: pick(parseBool(env.IOS_DEVICE_ALLOW_WRITES), "allowWrites"),
     launchArgs: pick(parseArgs(env.IOS_DEVICE_LAUNCH_ARGS), "launchArgs"),
