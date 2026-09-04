@@ -14,10 +14,12 @@
     "url": "git+https://github.com/mgcrea/mcp-ios-device.git"
   },
   "bin": {
-    "ios-device-mcp": "dist/cli.js"
+    "ios-device-mcp": "dist/cli.js",
+    "ios-device-wda": "scripts/wda.sh"
   },
   "files": [
-    "dist"
+    "dist",
+    "scripts/wda.sh"
   ],
   "os": [
     "darwin"

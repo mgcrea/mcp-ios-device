@@ -77,8 +77,9 @@ export class WdaUnavailableError extends IosDeviceError {
   constructor(url: string, cause: string) {
     super(`WebDriverAgent is not reachable at ${url} (${cause}).`, {
       remedy:
-        "Start the runner with `scripts/wda.sh run` and leave it open — the HTTP server is the " +
-        "XCTest process, so it stops when that command does. If it starts and then fails with " +
+        "Start the runner with `scripts/wda.sh run` (or `npx -p @mgcrea/mcp-ios-device ios-device-wda run` " +
+        "from an npm install) and leave it open — the HTTP server is the XCTest process, so it stops " +
+        "when that command does. If it starts and then fails with " +
         '"Timed out while enabling automation mode", the device needs Settings > Developer > ' +
         "Enable UI Automation turned on: it is a separate toggle from Developer Mode and is the " +
         "one people miss. If you forward port 8100 yourself, set IOS_DEVICE_WDA_URL instead.",

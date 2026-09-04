@@ -112,6 +112,13 @@ scripts/wda.sh run                                    # leave this running
 scripts/wda.sh status                                 # is it answering?
 ```
 
+Installed from npm rather than a checkout, the same script is the `ios-device-wda` binary:
+
+```bash
+IOS_DEVICE_TEAM_ID=YOURTEAMID npx -p @mgcrea/mcp-ios-device ios-device-wda setup
+npx -p @mgcrea/mcp-ios-device ios-device-wda run
+```
+
 `run` has to stay open: the HTTP server _is_ the XCTest process, so it stops when the test
 session does. The first run may put an untrusted-developer prompt on the phone — trust your
 team in Settings → General → VPN & Device Management, then run it again.
