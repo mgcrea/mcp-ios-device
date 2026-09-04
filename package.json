@@ -1,6 +1,6 @@
 {
   "name": "@mgcrea/mcp-ios-device",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Model Context Protocol server for driving a physical iOS device: screenshots, UI tree, taps and app lifecycle",
   "keywords": [
     "ios-device",
