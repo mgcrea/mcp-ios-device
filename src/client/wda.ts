@@ -1,4 +1,9 @@
-import { WdaError, WdaUnavailableError } from "#/client/errors";
+import {
+  START_RUNNER_REMEDY,
+  UI_AUTOMATION_REMEDY,
+  WdaError,
+  WdaUnavailableError,
+} from "#/client/errors";
 import type { Logger } from "#/client/exec";
 
 /**
@@ -130,9 +135,7 @@ export class WdaClient {
         {
           status: res.status,
           ...(failure?.error ? { wdaCode: failure.error } : {}),
-          ...(remedyForWdaError(failure?.error)
-            ? { remedy: remedyForWdaError(failure?.error)! }
-            : {}),
+          ...(remedyFor(failure) ? { remedy: remedyFor(failure)! } : {}),
         },
       );
     }
@@ -188,9 +191,17 @@ export class WdaClient {
     return this.request<string>("GET", "/screenshot");
   }
 
-  /** The full accessibility hierarchy. Rects are in *points*, not pixels. */
+  /**
+   * The full accessibility hierarchy. Rects are in *points*, not pixels.
+   *
+   * Routed through `withSession` despite `/source` needing no session id in its
+   * path: WDA answers it from the application it has attached to, and when that
+   * app has gone it fails with a dead `local.pid.0` handle rather than with
+   * anything about the session. Recreating the session re-attaches to whatever
+   * is in the foreground now, which is the recovery the caller wanted.
+   */
   async source(): Promise<WdaNode> {
-    return this.request<WdaNode>("GET", "/source?format=json");
+    return this.withSession(() => this.request<WdaNode>("GET", "/source?format=json"));
   }
 
   /** Logical screen size in points — the space every coordinate below is in. */
@@ -289,13 +300,42 @@ const asValueError = (value: unknown): WdaValueError | undefined => {
   return typeof record.error === "string" ? record : undefined;
 };
 
+/**
+ * Whether the session should be thrown away and remade.
+ *
+ * The first three are WDA saying it has forgotten the session. The last two are
+ * WDA saying it still has one but the app it points at is gone — the
+ * `Application 'local.pid.0' is not running` failure, where pid 0 is the tell
+ * that the handle is dead. That is not obviously the same condition, but the
+ * fix is identical and there is no other route back: without it, every app
+ * relaunch left `ui_tree` permanently broken until the runner was restarted by
+ * hand.
+ */
 const isStaleSession = (err: WdaError): boolean =>
   err.wdaCode === "invalid session id" ||
   err.wdaCode === "no such session" ||
-  err.message.includes("Session does not exist");
+  err.message.includes("Session does not exist") ||
+  err.message.includes("is not present in the current view anymore") ||
+  /Application .* is not running/.test(err.message);
 
-const remedyForWdaError = (code: string | undefined): string | undefined => {
-  switch (code) {
+/**
+ * The remedy for a failure WDA has already answered with.
+ *
+ * Takes the whole failure rather than its `error` code, because the one that
+ * costs the most time does not have a code worth switching on: an unauthorized
+ * XCTest lane comes back as a generic error whose only distinguishing mark is
+ * `XCTDaemonErrorDomain Code=41` in the message. Matching the code alone left
+ * that case with no remedy at all, which is exactly the field a caller acts on.
+ */
+const remedyFor = (failure: WdaValueError | undefined): string | undefined => {
+  if (failure && isNotAuthorized(failure.message)) {
+    return (
+      "WebDriverAgent is running but is not authorized to drive the UI, so screenshots, the UI " +
+      `tree and taps will all fail while everything else keeps working. ${UI_AUTOMATION_REMEDY} ` +
+      START_RUNNER_REMEDY
+    );
+  }
+  switch (failure?.error) {
     case "no such element":
       return "Call ios_device_ui_tree to see what is actually on screen — the element may not have appeared yet.";
     case "unexpected alert open":
@@ -306,3 +346,16 @@ const remedyForWdaError = (code: string | undefined): string | undefined => {
       return undefined;
   }
 };
+
+/**
+ * Does this failure mean the XCTest lane is refusing to act?
+ *
+ * Both spellings, because the domain-and-code form is what WDA passes through
+ * verbatim and the localized description is what a future iOS could send on its
+ * own. Exported so `ios_device_diagnostics` classifies its probe with the same
+ * rule the tools do, rather than a second one that can disagree with it.
+ */
+export const isNotAuthorized = (message: string | undefined): boolean =>
+  typeof message === "string" &&
+  (message.includes("Not authorized for performing UI testing actions") ||
+    (message.includes("XCTDaemonErrorDomain") && message.includes("Code=41")));

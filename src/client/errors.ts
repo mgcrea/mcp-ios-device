@@ -67,6 +67,29 @@ export class DeviceNotFoundError extends IosDeviceError {
 }
 
 /**
+ * How to get the runner up, and how to get it authorized. Two separate things,
+ * so two separate strings.
+ *
+ * Shared rather than written per site: three failures lead to the same advice —
+ * the runner not answering, the runner answering but refusing every XCTest
+ * action, and `ios_device_diagnostics` reporting either — and hand-written
+ * copies of a remedy this long drift apart the first time one is corrected.
+ */
+export const START_RUNNER_REMEDY =
+  "Start the runner with `scripts/wda.sh run` (or `npx -p @mgcrea/mcp-ios-device ios-device-wda run` " +
+  "from an npm install) and leave it open — the HTTP server is the XCTest process, so it stops " +
+  "when that command does.";
+
+/**
+ * The one remedy nobody can apply from this Mac. It is a separate toggle from
+ * Developer Mode, which is why a device that passes every other check here can
+ * still refuse to be driven.
+ */
+export const UI_AUTOMATION_REMEDY =
+  "Turn on Settings > Developer > Enable UI Automation on the device. It is a separate toggle " +
+  "from Developer Mode, cannot be set from this Mac, and is the usual cause.";
+
+/**
  * WebDriverAgent is not answering. Distinguished from every other failure
  * because the fix is entirely different — nothing is wrong with the device, the
  * runner just is not up.
@@ -77,12 +100,9 @@ export class WdaUnavailableError extends IosDeviceError {
   constructor(url: string, cause: string) {
     super(`WebDriverAgent is not reachable at ${url} (${cause}).`, {
       remedy:
-        "Start the runner with `scripts/wda.sh run` (or `npx -p @mgcrea/mcp-ios-device ios-device-wda run` " +
-        "from an npm install) and leave it open — the HTTP server is the XCTest process, so it stops " +
-        "when that command does. If it starts and then fails with " +
-        '"Timed out while enabling automation mode", the device needs Settings > Developer > ' +
-        "Enable UI Automation turned on: it is a separate toggle from Developer Mode and is the " +
-        "one people miss. If you forward port 8100 yourself, set IOS_DEVICE_WDA_URL instead.",
+        `${START_RUNNER_REMEDY} If it starts and then fails with "Timed out while enabling ` +
+        `automation mode", the device is refusing the automation grant: ${UI_AUTOMATION_REMEDY} ` +
+        "If you forward port 8100 yourself, set IOS_DEVICE_WDA_URL instead.",
     });
   }
 }

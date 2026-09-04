@@ -236,6 +236,12 @@ Start with `ios_device_diagnostics`; it names which half is wrong. Then:
   startup banner, which prints `writes=ENABLED` or `writes=disabled`.
 - **WebDriverAgent not reachable** — `scripts/wda.sh status`. If the tunnel address is missing,
   reconnect the device or open Xcode once to bring the tunnel up.
+- **"Not authorized for performing UI testing actions"** — the runner is up and its XCTest lane is
+  not. A healthy `/status` does not imply a working screen lane: `/status` is answered by the HTTP
+  server inside the runner and never crosses into XCTest, so it reports `ready: true` on a runner
+  that cannot take a single screenshot. Turn on **Settings → Developer → Enable UI Automation** on
+  the device, then restart `scripts/wda.sh run`. `ios_device_diagnostics` probes this directly and
+  reports it as `wda.authorized`.
 - **`ui_tree` is empty** — the screen may genuinely have no controls; try `detail: "labelled"`.
   A truncated answer always says so in `truncated`.
 - **Provisioning expired** — a development profile lasts a year on a paid team. Re-run

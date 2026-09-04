@@ -6,6 +6,7 @@ import {
   connect,
   DEVICE_ID,
   execMock,
+  sampleSource,
   wdaMock,
   type FetchLike,
 } from "#test/helpers";
@@ -58,6 +59,29 @@ const refusing: FetchLike = async () => {
   throw new Error("connect ECONNREFUSED");
 };
 
+/** WDA's own failure envelope, which it sends on a 500 as readily as on a 200. */
+const wdaFailure = (message: string): Response =>
+  new Response(JSON.stringify({ value: { error: "unknown error", message }, sessionId: null }), {
+    status: 500,
+    headers: { "content-type": "application/json" },
+  });
+
+/**
+ * A runner that is up and refuses to act — `/status` healthy, every XCTest call
+ * rejected. Measured against WDA 16.12.3 on iOS 26.6.1 with the device's
+ * automation grant missing: the domain and code carry the meaning, and the
+ * `error` field is the generic one.
+ */
+const unauthorized = (): FetchLike =>
+  wdaMock({
+    "/screenshot": () =>
+      wdaFailure(
+        'Error Domain=XCTDaemonErrorDomain Code=41 "Not authorized for performing UI testing ' +
+          'actions." UserInfo={NSLocalizedDescription=Not authorized for performing UI testing ' +
+          "actions.}",
+      ),
+  });
+
 /** The pointer sequence a W3C `/actions` call carried, for asserting on. */
 const pointerSequence = (log: { path: string; body: unknown }[]): Record<string, number>[] => {
   const body = log.find((entry) => entry.path.endsWith("/actions"))?.body as
@@ -108,6 +132,61 @@ describe("surviving a broken environment", () => {
     const result = await (await connect({}, { fetch: refusing })).call("ios_device_screenshot");
     expect(result.isToolError).toBe(true);
     expect(String(result.remedy)).toContain("wda.sh");
+  });
+
+  // The regression this whole group exists for: a runner whose HTTP server is up
+  // and whose XCTest lane is dead reported `ok: true, problems: []` while every
+  // screenshot, tap and ui_tree failed. `/status` cannot see that, so diagnostics
+  // has to probe across the line rather than infer from it.
+  it("catches a runner that answers /status but is not authorized to drive the UI", async () => {
+    const result = await (
+      await connect({}, { fetch: unauthorized() })
+    ).call("ios_device_diagnostics");
+    expect(result.isToolError).toBe(false);
+    expect(result.ok).toBe(false);
+    expect((result.wda as { reachable: boolean }).reachable).toBe(true);
+    expect((result.wda as { authorized: boolean }).authorized).toBe(false);
+    expect(String(result.problems)).toContain("not authorized");
+    expect(String(result.nextSteps)).toContain("Enable UI Automation");
+  });
+
+  it("gives error 41 a remedy, though it arrives under no code worth switching on", async () => {
+    const result = await (
+      await connect({}, { fetch: unauthorized() })
+    ).call("ios_device_screenshot");
+    expect(result.isToolError).toBe(true);
+    expect(String(result.remedy)).toContain("Enable UI Automation");
+  });
+
+  // WDA keeps the app it attached to, and reports its death as a `local.pid.0`
+  // handle rather than as anything about the session. Left unmatched, that made
+  // ui_tree permanently broken after any relaunch.
+  it("recreates the session when the app WebDriverAgent held has gone", async () => {
+    const log: { method: string; path: string; body: unknown }[] = [];
+    let attempts = 0;
+    const fetch = wdaMock(
+      {
+        "/source": () => {
+          attempts += 1;
+          return attempts === 1
+            ? wdaFailure(
+                "The previously found element \"Application 'local.pid.0'\" is not present in the " +
+                  "current view anymore. Make sure the application UI has the expected state. " +
+                  "Original error: Application local.pid.0 is not running",
+              )
+            : new Response(JSON.stringify({ value: sampleSource, sessionId: "S2" }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+        },
+      },
+      log,
+    );
+
+    const result = await (await connect({}, { fetch })).call("ios_device_ui_tree");
+    expect(result.isToolError).toBe(false);
+    expect(attempts).toBe(2);
+    expect(log.filter((entry) => entry.path === "/session")).toHaveLength(2);
   });
 });
 

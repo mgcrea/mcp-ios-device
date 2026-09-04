@@ -2,7 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import type { DeviceClient } from "#/client/device";
+import { START_RUNNER_REMEDY, UI_AUTOMATION_REMEDY } from "#/client/errors";
 import type { DeviceSummary } from "#/client/shape";
+import { isNotAuthorized } from "#/client/wda";
 import type { ToolContext } from "#/tools/index";
 import { deviceArg, wrap } from "#/tools/util";
 
@@ -13,7 +15,18 @@ export type Diagnosis = {
   target?: { id: string; name: string | undefined; os: string | undefined };
   /** Undefined when it could not be read at all, which is itself worth seeing. */
   locked?: boolean;
-  wda: { url?: string; reachable: boolean; state?: unknown; error?: string };
+  /**
+   * `reachable` is the HTTP server; `authorized` is the XCTest lane behind it.
+   * They are genuinely independent, and only the second one decides whether a
+   * screenshot or a tap can work.
+   */
+  wda: {
+    url?: string;
+    reachable: boolean;
+    authorized?: boolean;
+    state?: unknown;
+    error?: string;
+  };
   problems: string[];
   nextSteps: string[];
 };
@@ -121,17 +134,49 @@ export const diagnose = async (
         "WebDriverAgent is not answering, so screenshots, the UI tree and taps are unavailable.",
       );
       nextSteps.push(
-        "Build and start the runner: `scripts/wda.sh setup` once, then `scripts/wda.sh run` left " +
-          "open. Everything that does not touch the screen — list_devices, list_apps, install, " +
+        "Build the runner once with `scripts/wda.sh setup`, then start it. " +
+          START_RUNNER_REMEDY +
+          " Everything that does not touch the screen — list_devices, list_apps, install, " +
           "launch — works without it.",
       );
       // Only a person standing next to the phone can fix this one, so it has to
       // be named rather than left as "the runner did not start".
       nextSteps.push(
-        'If the runner starts and then fails with "Timed out while enabling automation mode", turn ' +
-          "on Settings > Developer > Enable UI Automation on the device. It is a separate toggle " +
-          "from Developer Mode, cannot be set from this Mac, and is the usual cause.",
+        'If the runner starts and then fails with "Timed out while enabling automation mode", the ' +
+          `device is refusing the automation grant. ${UI_AUTOMATION_REMEDY}`,
       );
+    }
+
+    // `/status` is served by the HTTP server inside the runner and never crosses
+    // into XCTest, so it answers `ready: true` on a runner that cannot perform a
+    // single UI action. Everything this tool exists to catch lives on the other
+    // side of that line, so it has to be probed rather than inferred: without
+    // this, an unauthorized runner reports a clean bill of health while every
+    // screenshot, tap and ui_tree fails.
+    //
+    // `/screenshot` is the probe because it is session-less and is exactly the
+    // call that fails first. The image is discarded.
+    if (wda.reachable) {
+      try {
+        await client.wda(target).screenshot();
+        wda.authorized = true;
+      } catch (err) {
+        wda.authorized = false;
+        const message = err instanceof Error ? err.message : String(err);
+        if (isNotAuthorized(message)) {
+          problems.push(
+            "WebDriverAgent is answering but is not authorized to perform UI testing actions, so " +
+              "screenshots, the UI tree and taps will all fail while everything else works.",
+          );
+          nextSteps.push(UI_AUTOMATION_REMEDY);
+          nextSteps.push(START_RUNNER_REMEDY);
+        } else {
+          problems.push(
+            `WebDriverAgent answered /status but could not capture a screen: ${message}`,
+          );
+          nextSteps.push(START_RUNNER_REMEDY);
+        }
+      }
     }
   }
 
