@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ios-device": {
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-ios-device/dist/cli.js"],
+      "env": {
+        "IOS_DEVICE_ID": "",
+        "IOS_DEVICE_ALLOW_WRITES": "",
+        "IOS_DEVICE_LAUNCH_ARGS": ""
+      }
+    }
+  }
+}

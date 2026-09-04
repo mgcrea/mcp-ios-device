@@ -1,0 +1,74 @@
+{
+  "name": "@mgcrea/mcp-ios-device",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for driving a physical iOS device: screenshots, UI tree, taps and app lifecycle",
+  "keywords": [
+    "ios-device",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "license": "MIT",
+  "author": "Olivier Louvignes <olivier@mgcrea.io>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mgcrea/mcp-ios-device.git"
+  },
+  "bin": {
+    "ios-device-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "imports": {
+    "#/*": "./src/*.ts",
+    "#test/*": "./test/*.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "start": "node dist/cli.js",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "release": "pnpm dlx release-it",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@types/node": "^26.2.0",
+    "oxfmt": "^0.62.0",
+    "oxlint": "^1.77.0",
+    "tsdown": "^0.22.14",
+    "tsx": "^4.23.11",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.13.1"
+}

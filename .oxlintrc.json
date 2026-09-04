@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    // stdout is the MCP protocol channel; a stray console.log corrupts the
+    // stream. CLI entry points that legitimately print usage opt out per-line.
+    "no-console": ["error", { "allow": ["error", "warn"] }]
+  },
+  "ignorePatterns": ["dist", "node_modules"]
+}
