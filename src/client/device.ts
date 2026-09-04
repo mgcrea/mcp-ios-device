@@ -2,7 +2,7 @@ import { Devicectl, type DisplayInfo, type RawApp } from "#/client/devicectl";
 import { DeviceNotFoundError, IosDeviceError } from "#/client/errors";
 import { defaultExec, type ExecImpl, type Logger } from "#/client/exec";
 import { summarizeDevice, type DeviceSummary } from "#/client/shape";
-import { WdaClient } from "#/client/wda";
+import { DEVICE_WDA_REMEDIES, WdaClient } from "#/client/wda";
 
 /**
  * The facade the tools talk to. It holds the one piece of knowledge neither lane
@@ -85,6 +85,19 @@ export class DeviceClient {
       // honest answer either way.
     }
     return this.listDevices({ fresh: true });
+  }
+
+  /**
+   * `ScreenHost.resolveTarget`, which is `resolveDevice` under the name the
+   * shared tools know it by.
+   *
+   * An alias rather than a rename: `resolveDevice` says what it does in this
+   * server and is used throughout it, while the shared screen and input tools
+   * cannot know that a target is a device at all. This one line is the entire
+   * cost of `DeviceClient` satisfying `ScreenHost<DeviceSummary>`.
+   */
+  async resolveTarget(hint?: string): Promise<DeviceSummary> {
+    return this.resolveDevice(hint);
   }
 
   /**
@@ -195,6 +208,7 @@ export class DeviceClient {
     const client = new WdaClient({
       baseUrl: async () => url,
       timeoutMs: this.opts.wdaTimeoutMs,
+      remedies: DEVICE_WDA_REMEDIES,
       ...(this.opts.fetch ? { fetch: this.opts.fetch } : {}),
       ...(this.opts.logger ? { logger: this.opts.logger } : {}),
     });

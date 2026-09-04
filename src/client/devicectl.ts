@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { DisplayInfo } from "@mgcrea/mcp-ios-core";
+
 import { CommandError, IosDeviceError } from "#/client/errors";
 import { assertNoShellMetachars, defaultExec, type ExecImpl, type Logger } from "#/client/exec";
 
@@ -62,18 +64,6 @@ export type RawDisplay = {
   bounds?: [[number, number], [number, number]];
   pointScale?: number;
   currentOrientation?: string;
-};
-
-export type DisplayInfo = {
-  /** Native panel size, in device pixels — the space a raw screenshot is in. */
-  pixelWidth: number;
-  pixelHeight: number;
-  /** Logical size, in points — the space WebDriverAgent's rects and taps are in. */
-  pointWidth: number;
-  pointHeight: number;
-  pointScale: number;
-  orientation: string;
-  backlightState: string | undefined;
 };
 
 export type RawApp = {
@@ -306,3 +296,5 @@ export class Devicectl {
     ]);
   }
 }
+
+export type { DisplayInfo } from "@mgcrea/mcp-ios-core";

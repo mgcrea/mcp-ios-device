@@ -21,8 +21,9 @@ otherwise means a person holding the phone and narrating.
   on the call that made it.
 - **Manage the app.** Install a build, launch it with arguments, terminate it, pull its data
   container off the device.
-- **TypeScript only.** Two npm dependencies at runtime, and no Python, no `iproxy`, no usbmux
-  client, no Appium server. See [How it reaches the device](#how-it-reaches-the-device).
+- **TypeScript only.** Three npm dependencies at runtime, one of them our own, and no Python,
+  no `iproxy`, no usbmux client, no Appium server. See
+  [How it reaches the device](#how-it-reaches-the-device).
 
 ## Security
 
@@ -36,7 +37,14 @@ fixture mode.
 reaches the device through `xcrun devicectl` and a locally-reachable HTTP server, both of which
 are already authorised by the trust relationship between this Mac and this phone.
 
-**Supply chain.** Two runtime dependencies, `@modelcontextprotocol/server` and `zod`. Scaling
+**Supply chain.** Three runtime dependencies: `@modelcontextprotocol/server`, `zod`, and
+[`@mgcrea/mcp-ios-core`](../mcp-ios-core) — our own, and itself dependent on only the first two.
+The core holds the half of this server that a simulator drives identically: the WebDriverAgent
+client, the accessibility-tree flattening, the screenshot renderer and the tap/swipe/type tools.
+It is a peer package rather than a subpath of this one because
+[`mcp-ios-simulator`](../mcp-ios-simulator) needs none of what is left here — `devicectl`, the
+tunnel, the signed runner — and shipping it a whole second server to reuse half of it would be the
+wrong dependency direction. Scaling
 images uses `sips`, which ships with macOS, specifically so an image library does not have to be
 installed into a process that holds device access.
 

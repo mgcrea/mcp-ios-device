@@ -1,10 +1,13 @@
 import { writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import type { ScreenHost } from "@mgcrea/mcp-ios-core";
 import { describe, expect, it } from "vitest";
 
 import type { ExecImpl } from "#/client/exec";
+import type { DeviceSummary } from "#/client/shape";
 import { loadConfig } from "#/config";
+import { createServer } from "#/server";
 import {
   ABSENT_CONFIG,
   connect,
@@ -539,6 +542,39 @@ describe("ui tree", () => {
     expect((result.elements as unknown[]).length).toBeLessThan(60);
     expect(String(result.truncated)).toContain("byte cap");
   });
+
+  it("names the variable that raises the cap, so a truncated tree says how to get more", async () => {
+    // The hint is a parameter now that `flattenTree` is shared, and a shared
+    // default would name the wrong env var in the other server. Nothing else in
+    // the suite reads the truncation string, so this is the only thing standing
+    // between a correct hint and a silently missing one.
+    const crowded = {
+      type: "XCUIElementTypeApplication",
+      rect: { x: 0, y: 0, width: 440, height: 956 },
+      isVisible: "1",
+      children: Array.from({ length: 60 }, (_, i) => ({
+        type: "XCUIElementTypeButton",
+        label: `Row number ${i} with a deliberately long label`,
+        rect: { x: 20, y: i * 12, width: 400, height: 44 },
+        isVisible: "1",
+        isEnabled: "1",
+      })),
+    };
+    const harness = await connect(
+      { IOS_DEVICE_MAX_TREE_BYTES: "1000" },
+      {
+        fetch: wdaMock({
+          "/source": () =>
+            new Response(JSON.stringify({ value: crowded, sessionId: "S1" }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+        }),
+      },
+    );
+    const result = await harness.call("ios_device_ui_tree", {});
+    expect(String(result.truncated)).toContain("IOS_DEVICE_MAX_TREE_BYTES");
+  });
 });
 
 describe("input", () => {
@@ -738,5 +774,28 @@ describe("tool contract", () => {
     for (const name of await (await connect(WRITES)).toolNames()) {
       expect(name).toMatch(/^ios_device_/);
     }
+  });
+});
+
+describe("the shared-core seam", () => {
+  it("is satisfied by DeviceClient without exposing any device-only member", async () => {
+    // A compile-time assertion, mostly. It is the only thing that catches a
+    // re-coupling: if `ScreenHost` ever grows a `devicectl` member, or
+    // `DeviceClient` loses `resolveTarget`, this stops type-checking. Nothing at
+    // runtime would notice, because the device server satisfies its own
+    // interface by construction — the risk is entirely to the *other* consumer.
+    const { client } = createServer({
+      config: loadConfig({}, ABSENT_CONFIG),
+      exec: execMock(),
+      fetch: wdaMock() as unknown as typeof fetch,
+      spawnRunner: spawnMock(),
+    });
+    const host: ScreenHost<DeviceSummary> = client;
+    expect(typeof host.resolveTarget).toBe("function");
+    expect(typeof host.wda).toBe("function");
+    expect(typeof host.display).toBe("function");
+    // The device lane has no capture that bypasses WebDriverAgent; a simulator
+    // does, and that asymmetry is why the member is optional.
+    expect(host.screenshotPng).toBeUndefined();
   });
 });

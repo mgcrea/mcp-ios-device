@@ -44,6 +44,22 @@ jobs:
         run: pnpm run test
       - name: Build 📦
         run: pnpm run build
+      # `link:../mcp-ios-core` is how this repo is developed before a core
+      # release, and it must never reach npm: it resolves to a sibling directory
+      # that exists on one laptop. Install would fail here anyway, but it would
+      # fail as a 404 on a package name, which reads like a registry problem
+      # rather than like a dependency someone forgot to unpin.
+      - name: No local dependencies 🔒
+        run: |
+          node -e "
+            const deps = require('./package.json').dependencies ?? {};
+            const local = Object.entries(deps).filter(([, v]) => /^(link|file):/.test(v));
+            if (local.length) {
+              console.error('local dependency specs must not ship: ' +
+                local.map(([k, v]) => k + '@' + v).join(', '));
+              process.exit(1);
+            }
+          "
       # The tool list is the server's public contract, and it is easy to change
       # by accident. This asserts the built CLI still speaks MCP over stdio, and
       # that an unconfigured capability is absent rather than merely refused.

@@ -1,2 +1,13 @@
 allowBuilds:
   esbuild: true
+
+# @mgcrea/* is our own scope, published by this same CI over OIDC — trusting it
+# immediately is a different question from trusting a random third-party bump.
+# Without this, a fleet package published minutes ago fails pnpm's default 24h
+# minimumReleaseAge on install, and a fresh CI runner has none of the exclude a
+# developer's own ~/.npmrc carries.
+# This lives here rather than in .npmrc: pnpm 11 reads minimumReleaseAgeExclude
+# from pnpm-workspace.yaml, not the .npmrc key of the same name — an .npmrc entry
+# is silently ignored.
+minimumReleaseAgeExclude:
+  - "@mgcrea/*"
