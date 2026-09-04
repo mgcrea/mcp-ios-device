@@ -59,6 +59,35 @@ export class DeviceClient {
   }
 
   /**
+   * Make CoreDevice service a device, then report what it looks like afterwards.
+   *
+   * `devicectl list devices` only reads CoreDevice's cached record. It never
+   * contacts the device, so a tunnel that is down stays down however often it is
+   * polled — which is why polling this server's own diagnostics never fixed
+   * anything. Every `devicectl device info …` call is the opposite: it acquires a
+   * usage assertion, and that assertion is what makes CoreDevice build the
+   * tunnel. It is the same signal Xcode's Devices window holds for as long as it
+   * is open, so "open Xcode once" was never really about Xcode.
+   *
+   * `lockState` is the cheapest of those calls — measured at ~0.2s against a
+   * healthy device — and its answer is discarded here; only the assertion matters.
+   * The assertion dies with the process holding it, so this brings a tunnel up
+   * and does not keep it up: a device that drops repeatedly needs something
+   * long-running to hold one, not a second poke.
+   */
+  async pokeTunnel(device: DeviceSummary): Promise<DeviceSummary[]> {
+    try {
+      await this.devicectl.lockState(device.id);
+    } catch {
+      // A device CoreDevice cannot even locate is not one a poke can rescue —
+      // an unplugged phone answers this with `unable to locate a device`. The
+      // fresh read below still reports whatever it now believes, which is the
+      // honest answer either way.
+    }
+    return this.listDevices({ fresh: true });
+  }
+
+  /**
    * Resolve a device from a hint, the configured default, or the fact that only
    * one is plugged in. Two connected devices and no hint is an error that lists
    * them: picking one would work most of the time and drive the wrong phone the

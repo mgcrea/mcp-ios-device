@@ -16,6 +16,12 @@ export type Diagnosis = {
   /** Undefined when it could not be read at all, which is itself worth seeing. */
   locked?: boolean;
   /**
+   * Set when the tunnel looked down and was poked before being judged. Reported
+   * so a tunnel that came back is not silently indistinguishable from one that
+   * was never broken.
+   */
+  tunnelPoked?: boolean;
+  /**
    * `reachable` is the HTTP server; `authorized` is the XCTest lane behind it.
    * They are genuinely independent, and only the second one decides whether a
    * screenshot or a tap can work.
@@ -29,6 +35,33 @@ export type Diagnosis = {
   };
   problems: string[];
   nextSteps: string[];
+};
+
+/**
+ * The device a poke should aim at when none could be resolved.
+ *
+ * A dropped tunnel does not merely set `tunnel.state`: `summarizeDevice` derives
+ * `state` from it, so the phone stops counting as "connected" and
+ * `resolveDevice` rejects with "No connected device" before there is a target.
+ * That is the ordinary case — one phone on the desk, tunnel gone — and it is
+ * worth a look at the paired devices instead.
+ *
+ * Ambiguity is deliberately left alone. Poking one of several dormant devices
+ * would revive an arbitrary one, and a configured `IOS_DEVICE_ID` that this
+ * function cannot see is the reason the single-device case is not assumed to be
+ * the only one worth rescuing.
+ */
+const dormantCandidate = (
+  devices: DeviceSummary[],
+  hint: string | undefined,
+): DeviceSummary | undefined => {
+  const dormant = devices.filter((device) => device.tunnel.state !== "connected");
+  if (hint) {
+    return dormant.find(
+      (device) => device.id === hint || device.udid === hint || device.name === hint,
+    );
+  }
+  return dormant.length === 1 ? dormant[0] : undefined;
 };
 
 /**
@@ -70,11 +103,56 @@ export const diagnose = async (
   }
 
   let target: DeviceSummary | undefined;
+  let unresolved: unknown;
   try {
     target = await client.resolveDevice(deviceHint);
   } catch (err) {
-    problems.push(err instanceof Error ? err.message : String(err));
-    const remedy = (err as { remedy?: string }).remedy;
+    unresolved = err;
+  }
+
+  // Poked before anything is judged, not after. The reading above comes from
+  // `devicectl list devices`, which is a passive read of CoreDevice's cache and
+  // can never bring a tunnel up; `pokeTunnel` acquires the usage assertion that
+  // can, then re-reads. Judging the first reading is what made this tool report
+  // "open Xcode once" while the `lockState` call below it silently did the very
+  // thing that would have fixed it — and the next call see a healthy tunnel.
+  //
+  // Both outcomes of a dropped tunnel are rescued here, because `summarizeDevice`
+  // derives `state` from `tunnelState`: the device stops looking "connected" at
+  // all, so `resolveDevice` throws and there is no target left to poke. Reporting
+  // that as "no connected device" is the same mistake one level up.
+  //
+  // Gated so the healthy path stays free, and the resolution failure is reported
+  // only after the poke has had its turn. Developer Mode and the DDI are re-judged
+  // off the second reading too: same cached record, same staleness.
+  const candidate =
+    target === undefined
+      ? dormantCandidate(devices, deviceHint)
+      : target.tunnel.state !== "connected"
+        ? target
+        : undefined;
+  let tunnelPoked = false;
+  if (candidate) {
+    devices = await client.pokeTunnel(candidate);
+    tunnelPoked = true;
+    try {
+      target = await client.resolveDevice(deviceHint);
+      unresolved = undefined;
+    } catch {
+      // The poke did not take, and the device still does not count as connected.
+      // It is nonetheless the one this report is about, and adopting it is what
+      // gives the tunnel check below something to name: without it the whole
+      // verdict block is skipped and the report degrades to "none has a live
+      // connection ... reconnect it", which mentions neither the tunnel nor what
+      // to try next. The resolution error is dropped as the weaker of the two.
+      target = devices.find((device) => device.id === candidate.id) ?? candidate;
+      unresolved = undefined;
+    }
+  }
+
+  if (target === undefined && unresolved !== undefined) {
+    problems.push(unresolved instanceof Error ? unresolved.message : String(unresolved));
+    const remedy = (unresolved as { remedy?: string }).remedy;
     if (remedy) nextSteps.push(remedy);
   }
 
@@ -100,7 +178,10 @@ export const diagnose = async (
         `The CoreDevice tunnel is "${target.tunnel.state ?? "absent"}", so the screen lane has no route to the device.`,
       );
       nextSteps.push(
-        "Reconnect the device, or open Xcode once to bring the tunnel up. Alternatively forward port 8100 " +
+        "A usage assertion was already acquired against the device and did not bring the tunnel " +
+          "up, so this is not a CoreDevice that merely needed waking. Reconnect the device, or " +
+          "run `xcrun xcdevice list --timeout 5` to drive the same discovery Xcode's Devices " +
+          "window does. Opening Xcode once is the last resort. Alternatively forward port 8100 " +
           "yourself and set IOS_DEVICE_WDA_URL.",
       );
     }
@@ -193,6 +274,7 @@ export const diagnose = async (
     devices,
     ...(target ? { target: { id: target.id, name: target.name, os: target.os } } : {}),
     ...(locked === undefined ? {} : { locked }),
+    ...(tunnelPoked ? { tunnelPoked } : {}),
     wda,
     problems,
     nextSteps,

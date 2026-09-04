@@ -1,11 +1,14 @@
+import { writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import type { ExecImpl } from "#/client/exec";
 import { loadConfig } from "#/config";
 import {
   ABSENT_CONFIG,
   connect,
+  connectedDevice,
   DEVICE_ID,
   execMock,
   sampleSource,
@@ -13,6 +16,40 @@ import {
   wdaMock,
   type FetchLike,
 } from "#test/helpers";
+
+/**
+ * An exec whose `list devices` walks a script of tunnel states, one per call.
+ * The last entry repeats, so `["unavailable", "connected"]` is a tunnel that
+ * comes back the moment something asks the device for anything.
+ */
+const tunnelStates = (states: (string | undefined)[], log: string[][] = []): ExecImpl => {
+  const base = execMock();
+  let seen = 0;
+  return async (path, args, timeoutMs) => {
+    log.push([path, ...args]);
+    if (args.join(" ").includes("list devices")) {
+      const state = states[Math.min(seen, states.length - 1)];
+      seen += 1;
+      const jsonPath = args[args.indexOf("--json-output") + 1] as string;
+      const device = {
+        ...connectedDevice,
+        connectionProperties: { ...connectedDevice.connectionProperties, tunnelState: state },
+      };
+      await writeFile(jsonPath, JSON.stringify({ info: {}, result: { devices: [device] } }));
+      return { stdout: "", stderr: "" };
+    }
+    return base(path, args, timeoutMs);
+  };
+};
+
+/** Indexes of every `list devices`, and of the first poke, in call order. */
+const ordering = (log: string[][]): { lists: number[]; poke: number } => {
+  const calls = log.map((entry) => entry.join(" "));
+  return {
+    lists: calls.flatMap((call, index) => (call.includes("list devices") ? [index] : [])),
+    poke: calls.findIndex((call) => call.includes("device info lockState")),
+  };
+};
 
 const WRITES = { IOS_DEVICE_ALLOW_WRITES: "1" };
 
@@ -128,6 +165,65 @@ describe("surviving a broken environment", () => {
     const result = await (await connect({}, { exec: locked })).call("ios_device_diagnostics");
     expect(result.locked).toBe(true);
     expect(String(result.problems)).toContain("locked");
+  });
+
+  // The tunnel bug this server shipped with: `devicectl list devices` is a
+  // passive read of CoreDevice's cache, so polling it could never revive
+  // anything, while the `lockState` call further down — which acquires the usage
+  // assertion that does — ran only after the verdict had been written.
+  it("pokes a dropped tunnel before judging it, so the one that comes back reads as healthy", async () => {
+    const log: string[][] = [];
+    const result = await (
+      await connect({}, { exec: tunnelStates(["unavailable", "connected"], log) })
+    ).call("ios_device_diagnostics");
+
+    expect(result.tunnelPoked).toBe(true);
+    expect(result.devices[0].tunnel.state).toBe("connected");
+    expect(String(result.problems)).not.toContain("tunnel");
+  });
+
+  it("acquires the usage assertion between the two readings, not after both", async () => {
+    const log: string[][] = [];
+    await (
+      await connect({}, { exec: tunnelStates(["unavailable", "connected"], log) })
+    ).call("ios_device_diagnostics");
+
+    const { lists, poke } = ordering(log);
+    expect(lists.length).toBeGreaterThanOrEqual(2);
+    expect(poke).toBeGreaterThan(lists[0] as number);
+    expect(poke).toBeLessThan(lists[1] as number);
+  });
+
+  // A dropped tunnel also makes the device stop resolving, since `state` is
+  // derived from `tunnelState`. Reporting "no connected device" without poking
+  // is the same mistake one level up.
+  it("rescues a device that a dropped tunnel made unresolvable", async () => {
+    const result = await (
+      await connect({}, { exec: tunnelStates(["unavailable", "connected"]) })
+    ).call("ios_device_diagnostics");
+
+    expect(result.target?.id).toBe(DEVICE_ID);
+    expect(String(result.problems)).not.toContain("No connected device");
+  });
+
+  it("still reports a tunnel the poke could not revive, and stops blaming Xcode first", async () => {
+    const result = await (
+      await connect({}, { exec: tunnelStates(["unavailable"]) })
+    ).call("ios_device_diagnostics");
+
+    expect(result.tunnelPoked).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(String(result.nextSteps)).toContain("xcdevice");
+  });
+
+  it("does not poke a device whose tunnel is already up", async () => {
+    const log: string[][] = [];
+    const result = await (
+      await connect({}, { exec: tunnelStates(["connected"], log) })
+    ).call("ios_device_diagnostics");
+
+    expect(result.tunnelPoked).toBeUndefined();
+    expect(ordering(log).lists).toHaveLength(1);
   });
 
   it("names the UI Automation toggle, which cannot be set from this Mac", async () => {
