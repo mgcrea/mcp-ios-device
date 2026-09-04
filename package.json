@@ -55,7 +55,7 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@mgcrea/mcp-ios-core": "link:../mcp-ios-core",
+    "@mgcrea/mcp-ios-core": "^0.1.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "zod": "^4.4.3"
   },
