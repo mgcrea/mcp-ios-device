@@ -15,7 +15,8 @@
   },
   "bin": {
     "ios-device-mcp": "dist/cli.js",
-    "ios-device-wda": "scripts/wda.sh"
+    "ios-device-wda": "scripts/wda.sh",
+    "mcp-ios-device": "dist/cli.js"
   },
   "files": [
     "dist",
