@@ -45,10 +45,37 @@ export const TOOLCHAIN_REMEDY =
  * action, and `ios_device_diagnostics` reporting either — and hand-written
  * copies of a remedy this long drift apart the first time one is corrected.
  */
-export const START_RUNNER_REMEDY =
+export const START_RUNNER_SCRIPT_REMEDY =
   "Start the runner with `scripts/wda.sh run` (or `npx -p @mgcrea/mcp-ios-device ios-device-wda run` " +
   "from an npm install) and leave it open — the HTTP server is the XCTest process, so it stops " +
   "when that command does.";
+
+/**
+ * The same thing, done with this server's own tool.
+ *
+ * It matters more here than the wording suggests. The automation grant is given
+ * to an XCTest session when it starts and never revisited, so a runner that came
+ * up unauthorized stays unauthorized however many times the Settings toggle is
+ * flipped — restarting it is not one fix among several, it is the only one. A
+ * remedy that sends the reader to a terminal for it is sending them away from
+ * the single tool that does the job.
+ */
+export const START_RUNNER_TOOL_REMEDY =
+  "Restart it with ios_device_restart_wda, which stops any runner already driving this device " +
+  "and spawns a fresh one detached, so it outlives this conversation. It returns as soon as the " +
+  "runner is spawned; poll ios_device_diagnostics for `wda.authorized` rather than waiting. The " +
+  "runner has to have been built once first, with `scripts/wda.sh setup`.";
+
+/**
+ * How to get the runner up, in whichever way the caller can actually reach.
+ *
+ * `ios_device_restart_wda` is registered only when writes are on — and unlike
+ * the simulator server, writes here default to **off**, so the script recipe is
+ * what most sessions will be given. Naming a tool that is not in the list would
+ * be the same mistake this replaces, pointed the other way.
+ */
+export const startRunnerRemedy = (allowWrites: boolean): string =>
+  allowWrites ? START_RUNNER_TOOL_REMEDY : START_RUNNER_SCRIPT_REMEDY;
 
 /**
  * The one remedy nobody can apply from this Mac. It is a separate toggle from
@@ -60,8 +87,8 @@ export const UI_AUTOMATION_REMEDY =
   "from Developer Mode, cannot be set from this Mac, and is the usual cause.";
 
 /** What to do when WebDriverAgent does not answer at all. */
-export const WDA_UNAVAILABLE_REMEDY =
-  `${START_RUNNER_REMEDY} If it starts and then fails with "Timed out while enabling ` +
+export const wdaUnavailableRemedy = (allowWrites: boolean): string =>
+  `${startRunnerRemedy(allowWrites)} If it starts and then fails with "Timed out while enabling ` +
   `automation mode", the device is refusing the automation grant: ${UI_AUTOMATION_REMEDY} ` +
   "If you forward port 8100 yourself, set IOS_DEVICE_WDA_URL instead.";
 

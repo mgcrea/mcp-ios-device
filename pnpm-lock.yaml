@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@mgcrea/mcp-ios-core':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.2.0
+        version: 0.2.0
       '@modelcontextprotocol/server':
         specifier: ^2.0.0
         version: 2.0.0
@@ -207,8 +207,8 @@ packages:
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
 
-  '@mgcrea/mcp-ios-core@0.1.0':
-    resolution: {integrity: sha512-p0e/WH6lOzwkaJr1CwDpF05IuvzUvGLnM9g4QmiSMvoVo129gsSB8a2rBp5AZ2D9p3R7qFpCrFXPawnWPYqN6w==}
+  '@mgcrea/mcp-ios-core@0.2.0':
+    resolution: {integrity: sha512-JUdgM3bpu849mTC1//33bDVLOXBxI+kat58Tj/KFrAgJ13gbF4QHkDP0m/f/oJBCVi322XESFEW8GZLbgUrayw==}
     engines: {node: '>=22'}
     os: [darwin]
 
@@ -1419,7 +1419,7 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
 
-  '@mgcrea/mcp-ios-core@0.1.0':
+  '@mgcrea/mcp-ios-core@0.2.0':
     dependencies:
       '@modelcontextprotocol/server': 2.0.0
       zod: 4.5.4

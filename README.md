@@ -165,6 +165,7 @@ printf '%s\n' \
 | `ios_device_get_display_info` | Screen size in pixels and points, orientation        | no      |
 | `ios_device_screenshot`       | The screen, scaled into point space                  | no      |
 | `ios_device_ui_tree`          | Flattened, pruned accessibility tree with tap points | no      |
+| `ios_device_wait_for_element` | Poll until something appears, or goes away           | no      |
 | `ios_device_tap`              | Tap a point                                          | **yes** |
 | `ios_device_tap_element`      | Tap by accessibility id, label or predicate          | **yes** |
 | `ios_device_swipe`            | Drag between two points                              | **yes** |
@@ -227,7 +228,17 @@ reaching for coordinates.
   grant is handed out when the session starts and never revisited. Measured on iOS 26.6.1 with the
   toggle off, `POST /session` still succeeds and `/wda/activeAppInfo` on that fresh session still
   answers `pid: 0`, so no amount of re-sessioning reaches it. Toggle, then restart the runner — in
-  that order.
+  that order, with `ios_device_restart_wda`.
+- **A label belongs to the control _and_ to every container around it**, and WebDriverAgent
+  answers depth-first, so an unqualified label match lands on the navigation bar about as often
+  as on the button — and a tap on a container does nothing while reporting success.
+  `tap_element` narrows a label to the interactive types first, and says `preferredControl` when
+  it did. Pass `index` to take over the ordering yourself and that narrowing is skipped.
+- **`isVisible` is not always truthful.** Measured on a simulator running the same XCUITest
+  stack: a photo picker reports all of its asset cells `isVisible: "0"` while they are on screen
+  and tappable. The default `ui_tree` filter drops them, so the result carries a `filtered` tally
+  of what the filters removed — a short list that has been filtered and a screen that is
+  genuinely bare are otherwise the same answer.
 - **A relaunch without `terminate_existing` ignores your arguments.** It foregrounds the running
   process instead, so the flags you just passed have no effect and nothing says so. It defaults
   to on for this reason.
@@ -256,14 +267,20 @@ Start with `ios_device_diagnostics`; it names which half is wrong. Then:
   not. A healthy `/status` does not imply a working screen lane: `/status` is answered by the HTTP
   server inside the runner and never crosses into XCTest, so it reports `ready: true` on a runner
   that cannot take a single screenshot. Turn on **Settings → Developer → Enable UI Automation** on
-  the device, then restart `scripts/wda.sh run`. `ios_device_diagnostics` probes this directly and
-  reports it as `wda.authorized`.
+  the device, then restart the runner with `ios_device_restart_wda` (or `scripts/wda.sh run` with
+  writes off). `ios_device_diagnostics` probes this directly and reports it as `wda.authorized`.
 - **`node: command not found` in the runner log** — `scripts/wda.sh` parses devicectl's JSON with
   node, and a host that embeds its own runtime leaves nothing called `node` on `PATH`.
   `ios_device_restart_wda` passes `NODE` and extends `PATH` for exactly this; running the script by
   hand from such an environment needs `NODE=/path/to/node`.
-- **`ui_tree` is empty** — the screen may genuinely have no controls; try `detail: "labelled"`.
-  A truncated answer always says so in `truncated`.
+- **`ui_tree` is empty or suspiciously short** — check `filtered` in the result before believing
+  it. It counts what the filters removed and names the argument that brings it back:
+  `detail: "labelled"` for labelled non-controls, `include_invisible: true` for elements
+  XCUITest marks invisible while they are plainly on screen. A truncated answer says so
+  separately, in `truncated`.
+- **A screen that loads slowly** — `wait_for_element` polls until something appears, or with
+  `absent: true` until a spinner goes. `settle_ms` on the action tools is a pause for an
+  animation and caps at ten seconds; it is not a wait.
 - **Provisioning expired** — a development profile lasts a year on a paid team. Re-run
   `scripts/wda.sh setup` to re-sign.
 

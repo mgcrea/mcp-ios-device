@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import type { DeviceClient } from "#/client/device";
-import { START_RUNNER_REMEDY, UI_AUTOMATION_REMEDY } from "#/client/errors";
+import { startRunnerRemedy, UI_AUTOMATION_REMEDY } from "#/client/errors";
 import type { DeviceSummary } from "#/client/shape";
 import { isNotAuthorized } from "#/client/wda";
 import type { ToolContext } from "#/tools/index";
@@ -172,7 +172,7 @@ export const diagnose = async (
       );
       nextSteps.push(
         "Build the runner once with `scripts/wda.sh setup`, then start it. " +
-          START_RUNNER_REMEDY +
+          startRunnerRemedy(ctx.allowWrites) +
           " Everything that does not touch the screen — list_devices, list_apps, install, " +
           "launch — works without it.",
       );
@@ -206,12 +206,17 @@ export const diagnose = async (
               "screenshots, the UI tree and taps will all fail while everything else works.",
           );
           nextSteps.push(UI_AUTOMATION_REMEDY);
-          nextSteps.push(START_RUNNER_REMEDY);
+          // Second half of one fix, not an alternative: the grant is handed to
+          // an XCTest session at startup and never revisited, so the toggle does
+          // nothing until the runner is restarted.
+          nextSteps.push(
+            `Then, so a new session picks it up: ${startRunnerRemedy(ctx.allowWrites)}`,
+          );
         } else {
           problems.push(
             `WebDriverAgent answered /status but could not capture a screen: ${message}`,
           );
-          nextSteps.push(START_RUNNER_REMEDY);
+          nextSteps.push(startRunnerRemedy(ctx.allowWrites));
         }
       }
     }

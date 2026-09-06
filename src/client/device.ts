@@ -2,7 +2,7 @@ import { Devicectl, type DisplayInfo, type RawApp } from "#/client/devicectl";
 import { DeviceNotFoundError, IosDeviceError } from "#/client/errors";
 import { defaultExec, type ExecImpl, type Logger } from "#/client/exec";
 import { summarizeDevice, type DeviceSummary } from "#/client/shape";
-import { DEVICE_WDA_REMEDIES, WdaClient } from "#/client/wda";
+import { deviceWdaRemedies, WdaClient } from "#/client/wda";
 
 /**
  * The facade the tools talk to. It holds the one piece of knowledge neither lane
@@ -18,6 +18,8 @@ export type DeviceClientOptions = {
   wdaPort: number;
   /** Explicit override; unset means "derive from the CoreDevice tunnel". */
   wdaUrl?: string | undefined;
+  /** Only so the WebDriverAgent remedies can name a tool this server registers. */
+  allowWrites?: boolean | undefined;
   defaultDeviceId?: string | undefined;
   exec?: ExecImpl | undefined;
   fetch?: typeof fetch | undefined;
@@ -281,7 +283,7 @@ export class DeviceClient {
     const client = new WdaClient({
       baseUrl: async () => url,
       timeoutMs: this.opts.wdaTimeoutMs,
-      remedies: DEVICE_WDA_REMEDIES,
+      remedies: deviceWdaRemedies(this.opts.allowWrites !== false),
       ...(this.opts.fetch ? { fetch: this.opts.fetch } : {}),
       ...(this.opts.logger ? { logger: this.opts.logger } : {}),
     });

@@ -63,6 +63,9 @@ const READ_TOOLS = [
   "ios_device_list_devices",
   "ios_device_screenshot",
   "ios_device_ui_tree",
+  // Observing, so it is registered whatever the write gate says: waiting for a
+  // screen to finish loading is not a change to the device.
+  "ios_device_wait_for_element",
 ];
 
 const WRITE_TOOLS = [
@@ -239,6 +242,26 @@ describe("surviving a broken environment", () => {
     expect(result.ok).toBe(false);
     expect(String(result.problems)).toContain("WebDriverAgent");
     expect(String(result.nextSteps)).toContain("wda.sh");
+  });
+
+  it("names the runner tool, not a shell, once that tool is registered", async () => {
+    // The same fix as the simulator server's: diagnostics diagnosed a dead
+    // runner and then sent the reader out of the toolset. It bites harder here,
+    // because restart_wda is the *only* way a runner picks up the UI Automation
+    // grant — flipping the Settings toggle does nothing to a running session.
+    const result = await (
+      await connect(WRITES, { fetch: refusing })
+    ).call("ios_device_diagnostics");
+    expect(String(result.nextSteps)).toContain("ios_device_restart_wda");
+    expect(String(result.nextSteps)).not.toContain("npx");
+  });
+
+  it("keeps the shell recipe when writes are off and the tool is absent", async () => {
+    // Writes default to off on a physical device, so this is the common case —
+    // and naming a tool that is not in the list would be the same mistake.
+    const result = await (await connect({}, { fetch: refusing })).call("ios_device_diagnostics");
+    expect(String(result.nextSteps)).toContain("wda.sh");
+    expect(String(result.nextSteps)).not.toContain("ios_device_restart_wda");
   });
 
   it("gives a screenshot failure a remedy rather than a bare fetch error", async () => {
@@ -725,7 +748,22 @@ describe("input", () => {
     const find = log.find((e) => e.path.endsWith("/elements"))?.body as
       | { value?: string }
       | undefined;
-    expect(find?.value).toBe('label == "say \\"hi\\"" OR name == "say \\"hi\\""');
+    // The escaping is what is under test, not the whole predicate: a label match
+    // is also narrowed to the interactive types, so this is one clause of two.
+    expect(find?.value).toContain('label == "say \\"hi\\"" OR name == "say \\"hi\\""');
+  });
+
+  it("prefers a control when a label is shared with the container around it", async () => {
+    const log: { method: string; path: string; body: unknown }[] = [];
+    const harness = await connect(WRITES, { fetch: wdaMock({}, log) });
+    const result = await harness.call("ios_device_tap_element", {
+      label: "Identify",
+      screenshot: false,
+    });
+    expect(result.isToolError).toBe(false);
+    const find = log.find((e) => e.path.endsWith("/elements"))?.body as { value?: string };
+    expect(find?.value).toContain('type == "XCUIElementTypeButton"');
+    expect(result.tapped.preferredControl).toBe(true);
   });
 
   it("refuses clear_first with no field named, since focus alone cannot be cleared", async () => {

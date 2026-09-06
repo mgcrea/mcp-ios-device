@@ -43,6 +43,7 @@ export const createServer = (opts: CreateServerOptions): CreatedServer => {
     wdaTimeoutMs: config.wdaTimeoutMs,
     warmTimeoutMs: config.warmTimeoutMs,
     wdaPort: config.wdaPort,
+    allowWrites: config.allowWrites,
     ...(config.wdaUrl ? { wdaUrl: config.wdaUrl } : {}),
     ...(config.deviceId ? { defaultDeviceId: config.deviceId } : {}),
     ...(opts.exec ? { exec: opts.exec } : {}),
