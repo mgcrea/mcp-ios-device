@@ -220,6 +220,11 @@ reaching for coordinates.
   result then says `coordinateSpace: "image_pixels"` and gives the factor to multiply by.
 - **A locked phone captures nothing** and refuses every launch. The failure says so, but it is
   the first thing to check.
+- **Since Xcode 27, `devicectl list devices` includes every simulator.** CoreDevice manages them
+  too: each comes back as platform iOS, `paired`, and a booted one as `connected`, told apart only
+  by `hardwareProperties.reality: "simulated"`. They are filtered out here, since
+  mcp-ios-simulator drives them. WebDriverAgent 16.12.3 itself runs unchanged on iOS 27.0 with
+  Xcode 27.0 (27A266a).
 - **The runner dies with its terminal.** `scripts/wda.sh run` is not a daemon. When taps stop
   working, that window is usually why. `ios_device_restart_wda` starts one detached instead, which
   survives that but logs to a file rather than to your screen.

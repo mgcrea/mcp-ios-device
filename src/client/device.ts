@@ -65,9 +65,13 @@ export class DeviceClient {
     // same `connected`/`paired` states this server otherwise reads as "a
     // candidate". Filtered here, once, rather than at every call site, so
     // nothing downstream — resolution, the wake-up below, ios_device_list_devices
-    // — has to know this server only drives one platform.
+    // — has to know this server only drives one platform. Since Xcode 27,
+    // CoreDevice also manages simulators, and every one of them comes back here
+    // as an iOS device with `reality: "simulated"`; those belong to
+    // mcp-ios-simulator, and a tunnel-less WDA lane cannot drive them anyway.
     const devices = raw
       .filter((device) => device.hardwareProperties?.platform === "iOS")
+      .filter((device) => device.hardwareProperties?.reality !== "simulated")
       .map(summarizeDevice);
     this.deviceCache = { at: Date.now(), devices };
     return devices;

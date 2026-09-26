@@ -534,6 +534,29 @@ describe("device resolution", () => {
     const ids = (result.devices as { id: string }[]).map((d) => d.id);
     expect(ids).toEqual([DEVICE_ID]);
   });
+
+  it("leaves out the simulators CoreDevice lists alongside devices since Xcode 27", async () => {
+    // Measured on Xcode 27.0: every simulator comes back from `list devices` as
+    // platform iOS, `paired`, and a booted one even as `connected`.
+    const withSimulator = execMock({
+      "list devices": {
+        devices: [
+          connectedDevice,
+          {
+            identifier: "F2E9340E-1121-4BA5-978D-E227626A01B0",
+            connectionProperties: { tunnelState: "connected" },
+            deviceProperties: { name: "iPhone 18 Pro" },
+            hardwareProperties: { platform: "iOS", reality: "simulated" },
+          },
+        ],
+      },
+    });
+    const result = await (
+      await connect({}, { exec: withSimulator })
+    ).call("ios_device_list_devices");
+    const ids = (result.devices as { id: string }[]).map((d) => d.id);
+    expect(ids).toEqual([DEVICE_ID]);
+  });
 });
 
 describe("screenshot", () => {
