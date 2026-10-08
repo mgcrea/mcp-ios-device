@@ -18,10 +18,11 @@ import { assertNoShellMetachars, defaultExec, type ExecImpl, type Logger } from 
  * output." Its stdout is a human table that changes between Xcode releases, so
  * every call writes `--json-output` to a temp file and reads it back.
  *
- * Second, devicectl covers *lifecycle*, not the screen. It has no screenshot, no
- * UI tree and no touch injection — the full subcommand tree was enumerated on
- * Xcode 26.6 and `strings` over the binary finds no such symbols. Everything
- * that sees or touches the screen lives in `#/client/wda` instead.
+ * Second, devicectl covers *lifecycle*, not the screen. It has no UI tree and
+ * no touch injection — the full subcommand tree was enumerated on Xcode 26.6
+ * and again on 27.0 — so everything that reads or touches the screen lives in
+ * `#/client/wda`. Xcode 27 did add `capture screenshot`, which `screenshot`
+ * below wraps as the fallback for when WebDriverAgent is down.
  */
 export type DevicectlOptions = {
   xcrunPath: string;
@@ -94,6 +95,9 @@ export type RawFile = {
 export type RawProcess = { processIdentifier?: number; executable?: string };
 
 type Envelope = { info?: unknown; result?: unknown; error?: unknown };
+
+/** devicectl spells booleans as `on`/`off` in `settings`. */
+const onOff = (value: boolean): string => (value ? "on" : "off");
 
 export class Devicectl {
   private readonly xcrunPath: string;
@@ -356,6 +360,85 @@ export class Devicectl {
       "--destination",
       opts.destination,
     ]);
+  }
+
+  /**
+   * A full-resolution PNG of the primary display, with no WebDriverAgent.
+   * Measured on Xcode 27.0 against an iPhone 17 Pro Max: ~1.7s and ~7.5 MB per
+   * capture, against ~0.6s through the runner — so this is the fallback, not
+   * the default. `capture screen-record` sits beside it in `--help` but the
+   * phone refuses it: "Screen Recording is not supported by this device".
+   */
+  async screenshot(device: string, destination: string): Promise<void> {
+    assertNoShellMetachars("destination", destination);
+    await this.run([
+      "device",
+      "capture",
+      "screenshot",
+      "--device",
+      device,
+      "--destination",
+      destination,
+    ]);
+  }
+
+  /**
+   * Open a URL with whatever handles it — an app's custom scheme, a universal
+   * link, or Safari. The URL is positional, so it goes in `trailing` like the
+   * bundle id of a launch: its own argv entry, never interpolated.
+   */
+  async openUrl(device: string, url: string): Promise<{ executable?: string } | undefined> {
+    const result = (await this.run(["device", "process", "openURL", "--device", device], [url])) as
+      | { process?: { executable?: string } }
+      | undefined;
+    return result?.process;
+  }
+
+  async uninstall(device: string, bundleId: string): Promise<unknown> {
+    return this.run(["device", "uninstall", "app", "--device", device], [bundleId]);
+  }
+
+  /** Every option devicectl takes here is `--flag value`; absent ones are left alone. */
+  async setAppearance(
+    device: string,
+    opts: { mode?: string; textSize?: string; increaseContrast?: boolean; reduceMotion?: boolean },
+  ): Promise<unknown> {
+    return this.run([
+      "device",
+      "settings",
+      "appearance",
+      "--device",
+      device,
+      ...(opts.mode ? ["--mode", opts.mode] : []),
+      ...(opts.textSize ? ["--text-size", opts.textSize] : []),
+      // Without it devicectl rejects the five accessibility- sizes outright.
+      ...(opts.textSize?.startsWith("accessibility-")
+        ? ["--larger-accessibility-sizes", "on"]
+        : []),
+      ...(opts.increaseContrast !== undefined
+        ? ["--increase-contrast", onOff(opts.increaseContrast)]
+        : []),
+      ...(opts.reduceMotion !== undefined ? ["--reduce-motion", onOff(opts.reduceMotion)] : []),
+    ]);
+  }
+
+  async simulateLocation(device: string, latitude: number, longitude: number): Promise<unknown> {
+    return this.run([
+      "device",
+      "simulate",
+      "location",
+      "coordinate",
+      "--device",
+      device,
+      "--latitude",
+      String(latitude),
+      "--longitude",
+      String(longitude),
+    ]);
+  }
+
+  async clearLocation(device: string): Promise<unknown> {
+    return this.run(["device", "simulate", "location", "clear", "--device", device]);
   }
 }
 

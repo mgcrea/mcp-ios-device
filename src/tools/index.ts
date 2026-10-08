@@ -4,6 +4,7 @@ import type { DeviceClient } from "#/client/device";
 import type { Config } from "#/config";
 import { registerAppTools } from "#/tools/app";
 import { registerDiagnosticsTools } from "#/tools/diagnostics";
+import { registerEnvironmentTools } from "#/tools/environment";
 import { registerInputTools } from "#/tools/input";
 import { registerInspectTools } from "#/tools/inspect";
 import { registerConsoleLogTools, registerCrashLogTools } from "#/tools/logs";
@@ -47,6 +48,8 @@ export const registerTools = (
 
   registerInputTools(server, client, ctx);
   registerAppTools(server, client, ctx);
+  // Changes the owner's real settings, and they outlive this server.
+  registerEnvironmentTools(server, client);
   // Read-only, but gated with launch: a capture only exists once
   // ios_device_launch has started one, so ungated it could only ever fail.
   registerConsoleLogTools(server, client);

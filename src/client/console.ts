@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
-import { mkdir, open, readFile, stat } from "node:fs/promises";
+import { mkdir, open, readFile } from "node:fs/promises";
 import { join } from "node:path";
+
+import { readLogFile, type LogReadResult } from "@mgcrea/mcp-ios-core";
 
 import { IosDeviceError } from "#/client/errors";
 
@@ -103,27 +105,6 @@ export type ReadOptions = {
   filter?: string | undefined;
   /** Most matching lines to return; the newest are kept. */
   limit: number;
-};
-
-/**
- * One read never looks at more than this much of the file. The capture grows
- * at ~200 lines a second for a chatty app, and a read that started from 0 an
- * hour in would otherwise load tens of megabytes to return its last 200 lines.
- */
-const MAX_READ_BYTES = 4 * 1024 * 1024;
-const MAX_LINE_CHARS = 500;
-
-/**
- * `2026-10-08 22:09:45.583026+0200 SandboxApp[13938:5106663] message` is how
- * the mirrored unified log prints, and the date, the zone, the process name and
- * both ids are identical on every line of a capture of one app. Cutting them to
- * `22:09:45.583 message` halves a typical line.
- */
-const XCODE_PREFIX = /^\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2}\.\d{3})\d*[+-]\d{4} \S+\[\d+:\d+\] /;
-
-const compactLine = (line: string): string => {
-  const short = line.replace(XCODE_PREFIX, "$1 ");
-  return short.length > MAX_LINE_CHARS ? `${short.slice(0, MAX_LINE_CHARS)}…` : short;
 };
 
 export class ConsoleCaptures {
@@ -246,69 +227,13 @@ export class ConsoleCaptures {
   }
 
   /**
-   * Read what the capture has gathered since `cursor`.
-   *
-   * The cursor is a byte offset, not a line number, so a read costs the same
-   * an hour into a capture as it does a second in. It only ever advances to the
-   * end of the last complete line: a line still being written is left for the
-   * next read rather than returned in two halves.
+   * Read what the capture has gathered since `cursor`. The reading itself is
+   * `readLogFile` from the shared core — byte cursor, CRLF-safe, prefix-trimmed —
+   * and all this adds is the one fact only the capture knows: whether devicectl
+   * is still writing.
    */
-  async read(
-    capture: Capture,
-    opts: ReadOptions,
-  ): Promise<{
-    lines: string[];
-    matched: number;
-    omitted: number;
-    next: number;
-    skippedBytes: number;
-  }> {
-    let pattern: RegExp | undefined;
-    if (opts.filter) {
-      try {
-        pattern = new RegExp(opts.filter, "i");
-      } catch (err) {
-        throw new IosDeviceError(`\`filter\` is not a valid regular expression: ${String(err)}`, {
-          remedy: "Escape regex characters, e.g. `\\[Sync\\]`, or pass a plain word.",
-        });
-      }
-    }
-
-    const size = (await stat(capture.path)).size;
-    let start = Math.min(Math.max(opts.cursor ?? 0, 0), size);
-    let skippedBytes = 0;
-    if (size - start > MAX_READ_BYTES) {
-      skippedBytes = size - MAX_READ_BYTES - start;
-      start = size - MAX_READ_BYTES;
-    }
-
-    const handle = await open(capture.path, "r");
-    let text: string;
-    try {
-      const buffer = Buffer.alloc(size - start);
-      await handle.read(buffer, 0, buffer.length, start);
-      text = buffer.toString("utf8");
-    } finally {
-      await handle.close();
-    }
-
-    // Stop at the last newline while the capture runs; once it has ended
-    // nothing more is coming, so a final unterminated line is complete.
-    const end = this.running(capture) ? text.lastIndexOf("\n") + 1 : text.length;
-    const next = start + Buffer.byteLength(text.slice(0, end), "utf8");
-    let lines = text.slice(0, end).split("\n");
-    if (skippedBytes > 0) lines = lines.slice(1); // started mid-line
-    lines = lines.filter((line) => line.length > 0);
-
-    const matching = pattern ? lines.filter((line) => pattern.test(line)) : lines;
-    const kept = matching.slice(-opts.limit);
-    return {
-      lines: kept.map(compactLine),
-      matched: matching.length,
-      omitted: matching.length - kept.length,
-      next,
-      skippedBytes,
-    };
+  async read(capture: Capture, opts: ReadOptions): Promise<LogReadResult> {
+    return readLogFile(capture.path, { ...opts, complete: !this.running(capture) });
   }
 
   /** Stop every capture without touching the apps. */

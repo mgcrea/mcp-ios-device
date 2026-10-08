@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { ConsoleCaptures, type SpawnConsole } from "#/client/console";
 import { Devicectl, type DisplayInfo, type RawApp } from "#/client/devicectl";
 import { DeviceNotFoundError, IosDeviceError } from "#/client/errors";
@@ -255,6 +259,37 @@ export class DeviceClient {
       candidate.executable?.startsWith(prefix),
     );
     return process?.processIdentifier;
+  }
+
+  /**
+   * `ScreenHost.screenshotPng`: WebDriverAgent first, `devicectl` when it fails.
+   *
+   * The runner is the faster lane — ~0.6s against ~1.7s, measured on Xcode 27.0
+   * — and the one every tap goes through anyway, so it stays first. But it is
+   * also the fragile one: built, signed, running, authorized and reachable over
+   * the tunnel, any of which can be missing. Since Xcode 27 a screenshot no
+   * longer needs any of that, so a runner that is down costs a slower picture
+   * rather than no picture. If devicectl fails as well, the runner's error is
+   * the one thrown: its remedy is the one that fixes the rest of the server.
+   */
+  async screenshotPng(device: DeviceSummary): Promise<string> {
+    try {
+      return await this.wda(device).screenshot();
+    } catch (wdaError) {
+      const dir = await mkdtemp(join(tmpdir(), "devicectl-shot-"));
+      try {
+        const path = join(dir, "screen.png");
+        await this.devicectl.screenshot(device.id, path);
+        this.opts.logger?.warn?.(
+          `WebDriverAgent screenshot failed (${String(wdaError)}); used devicectl instead`,
+        );
+        return (await readFile(path)).toString("base64");
+      } catch {
+        throw wdaError;
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    }
   }
 
   /**

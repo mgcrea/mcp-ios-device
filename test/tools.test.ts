@@ -18,6 +18,7 @@ import {
   execMock,
   sampleSource,
   spawnMock,
+  TINY_PNG,
   wdaMock,
   type FetchLike,
 } from "#test/helpers";
@@ -75,16 +76,19 @@ const READ_TOOLS = [
 const WRITE_TOOLS = [
   "ios_device_install",
   "ios_device_launch",
+  "ios_device_open_url",
   "ios_device_press_button",
   "ios_device_pull_container",
   // Read-only, but gated with launch: there is nothing to read without it.
   "ios_device_read_logs",
   "ios_device_restart_wda",
+  "ios_device_set_environment",
   "ios_device_swipe",
   "ios_device_tap",
   "ios_device_tap_element",
   "ios_device_terminate",
   "ios_device_type",
+  "ios_device_uninstall",
 ];
 
 describe("registration matrix", () => {
@@ -935,7 +939,8 @@ describe("console logs", () => {
     await harness.call("ios_device_launch", { bundle_id: "io.mgcrea.Canopy", capture_logs: true });
     await console.write(
       "2026-10-08 22:09:45.583026+0200 Canopy[13938:5106663] [Sync] started\n" +
-        "plain stdout line\n",
+        // CRLF, as print() output arrives through devicectl --console.
+        "plain stdout line\r\n",
     );
     const first = await harness.call("ios_device_read_logs", {});
     expect(first.lines).toEqual([
@@ -1143,6 +1148,127 @@ describe("crash logs", () => {
   });
 });
 
+/** An exec whose devicectl capture leaves a real PNG where it was told to. */
+const capturing = (log: string[][] = []): ExecImpl => {
+  const base = execMock({}, log);
+  return async (path, args, timeoutMs) => {
+    if (args.includes("capture")) {
+      await writeFile(
+        args[args.indexOf("--destination") + 1] as string,
+        Buffer.from(TINY_PNG, "base64"),
+      );
+    }
+    return base(path, args, timeoutMs);
+  };
+};
+
+describe("screenshot fallback", () => {
+  it("captures through devicectl when WebDriverAgent is down", async () => {
+    const log: string[][] = [];
+    const harness = await connect({}, { fetch: refusing, exec: capturing(log) });
+    const result = await harness.call("ios_device_screenshot");
+    expect(result.isToolError).toBe(false);
+    expect(result.hasImage).toBe(true);
+    expect(log.some((argv) => argv.join(" ").includes("device capture screenshot"))).toBe(true);
+  });
+
+  it("does not touch devicectl while WebDriverAgent answers", async () => {
+    const log: string[][] = [];
+    const harness = await connect({}, { exec: capturing(log) });
+    await harness.call("ios_device_screenshot");
+    expect(log.some((argv) => argv.includes("capture"))).toBe(false);
+  });
+});
+
+describe("open url, uninstall, environment", () => {
+  it("opens a URL as its own argv entry and names the app that took it", async () => {
+    const log: string[][] = [];
+    const harness = await connect(WRITES, {
+      exec: execMock(
+        {
+          "device process openURL": {
+            process: {
+              executable:
+                "file:///private/var/containers/Bundle/Application/X/MobileSafari.app/MobileSafari",
+            },
+          },
+        },
+        log,
+      ),
+    });
+    const result = await harness.call("ios_device_open_url", { url: "https://example.com/a b" });
+    expect(result.handledBy).toBe("MobileSafari");
+    const argv = log.find((entry) => entry.includes("openURL")) as string[];
+    expect(argv.at(-1)).toBe("https://example.com/a b");
+  });
+
+  it("rejects a URL with no scheme", async () => {
+    const result = await (
+      await connect(WRITES)
+    ).call("ios_device_open_url", { url: "example.com" });
+    expect(result.isToolError).toBe(true);
+  });
+
+  it("requires confirm to uninstall, then passes the bundle id last", async () => {
+    const log: string[][] = [];
+    const harness = await connect(WRITES, { exec: execMock({}, log) });
+    const refused = await harness.call("ios_device_uninstall", { bundle_id: "io.mgcrea.Canopy" });
+    expect(refused.isToolError).toBe(true);
+    const result = await harness.call("ios_device_uninstall", {
+      bundle_id: "io.mgcrea.Canopy",
+      confirm: true,
+    });
+    expect(result.uninstalled).toBe("io.mgcrea.Canopy");
+    expect((log.find((entry) => entry.includes("uninstall")) as string[]).at(-1)).toBe(
+      "io.mgcrea.Canopy",
+    );
+  });
+
+  it("sets appearance in one devicectl call, unlocking accessibility sizes as it goes", async () => {
+    const log: string[][] = [];
+    const harness = await connect(WRITES, { exec: execMock({}, log) });
+    const result = await harness.call("ios_device_set_environment", {
+      appearance: "dark",
+      content_size: "accessibility-large",
+      increase_contrast: true,
+    });
+    expect(result.applied).toEqual({
+      appearance: "dark",
+      content_size: "accessibility-large",
+      increase_contrast: true,
+    });
+    const calls = log.filter((entry) => entry.includes("appearance"));
+    expect(calls).toHaveLength(1);
+    const argv = (calls[0] as string[]).join(" ");
+    expect(argv).toContain("--mode dark");
+    expect(argv).toContain("--text-size accessibility-large --larger-accessibility-sizes on");
+    expect(argv).toContain("--increase-contrast on");
+  });
+
+  it("simulates and clears a location", async () => {
+    const log: string[][] = [];
+    const harness = await connect(WRITES, { exec: execMock({}, log) });
+    await harness.call("ios_device_set_environment", {
+      location: { latitude: 48.8584, longitude: 2.2945 },
+    });
+    await harness.call("ios_device_set_environment", { clear_location: true });
+    const calls = log.filter((entry) => entry.includes("location")).map((entry) => entry.join(" "));
+    expect(calls[0]).toContain("coordinate");
+    expect(calls[0]).toContain("--latitude 48.8584 --longitude 2.2945");
+    expect(calls[1]).toContain("location clear");
+  });
+
+  it("refuses a call that changes nothing, or contradicts itself", async () => {
+    const harness = await connect(WRITES);
+    expect((await harness.call("ios_device_set_environment", {})).isToolError).toBe(true);
+    const both = await harness.call("ios_device_set_environment", {
+      location: { latitude: 0, longitude: 0 },
+      clear_location: true,
+    });
+    expect(both.isToolError).toBe(true);
+  });
+});
+
 describe("config", () => {
   it("lets the environment beat the config file field by field", () => {
     const config = loadConfig({ IOS_DEVICE_WDA_PORT: "9100" }, ABSENT_CONFIG);
@@ -1208,8 +1334,8 @@ describe("the shared-core seam", () => {
     expect(typeof host.resolveTarget).toBe("function");
     expect(typeof host.wda).toBe("function");
     expect(typeof host.display).toBe("function");
-    // The device lane has no capture that bypasses WebDriverAgent; a simulator
-    // does, and that asymmetry is why the member is optional.
-    expect(host.screenshotPng).toBeUndefined();
+    // Since Xcode 27 the device has a capture that bypasses WebDriverAgent too,
+    // used as the fallback when the runner is down.
+    expect(typeof host.screenshotPng).toBe("function");
   });
 });

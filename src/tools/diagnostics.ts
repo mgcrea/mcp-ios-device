@@ -168,13 +168,14 @@ export const diagnose = async (
     } catch (err) {
       wda.error = err instanceof Error ? err.message : String(err);
       problems.push(
-        "WebDriverAgent is not answering, so screenshots, the UI tree and taps are unavailable.",
+        "WebDriverAgent is not answering, so the UI tree and taps are unavailable. Screenshots " +
+          "still work, through devicectl, at about three times the latency.",
       );
       nextSteps.push(
         "Build the runner once with `scripts/wda.sh setup`, then start it. " +
           startRunnerRemedy(ctx.allowWrites) +
           " Everything that does not touch the screen — list_devices, list_apps, install, " +
-          "launch — works without it.",
+          "launch, logs — works without it.",
       );
       // Only a person standing next to the phone can fix this one, so it has to
       // be named rather than left as "the runner did not start".
@@ -203,7 +204,8 @@ export const diagnose = async (
         if (isNotAuthorized(message)) {
           problems.push(
             "WebDriverAgent is answering but is not authorized to perform UI testing actions, so " +
-              "screenshots, the UI tree and taps will all fail while everything else works.",
+              "the UI tree and taps will fail while everything else works. Screenshots fall back " +
+              "to devicectl.",
           );
           nextSteps.push(UI_AUTOMATION_REMEDY);
           // Second half of one fix, not an alternative: the grant is handed to

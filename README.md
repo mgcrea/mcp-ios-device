@@ -21,6 +21,9 @@ otherwise means a person holding the phone and narrating.
   on the call that made it.
 - **Manage the app.** Install a build, launch it with arguments, terminate it, pull its data
   container off the device.
+- **Open a URL, uninstall, stage the device.** Test a deep link end to end, get a true first
+  launch, or set dark mode, Dynamic Type, Increase Contrast, Reduce Motion and a simulated
+  location — on the owner's real settings, so put them back.
 - **Read its logs.** Capture an app's stdout, stderr and `Logger`/`os_log` output from launch,
   and page through it with a cursor. Read the device's crash reports, with the faulting thread
   already symbolicated to library names. Neither needs root.
@@ -59,10 +62,10 @@ despite being a read on the device, because that data belongs to whoever holds t
 
 Two lanes, and knowing which is which explains every error message this server produces.
 
-| Lane                     | Carries                                                                                                 | Needs                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `xcrun devicectl`        | devices, apps, install, launch, terminate, container copy, display geometry, app console, crash reports | Xcode. Nothing on the phone.            |
-| WebDriverAgent over HTTP | screenshot, UI tree, tap, swipe, type, buttons                                                          | a runner built and running on the phone |
+| Lane                     | Carries                                                                                                                                                                 | Needs                                   |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `xcrun devicectl`        | devices, apps, install, uninstall, launch, open URL, terminate, container copy, display geometry, app console, crash reports, appearance, location, fallback screenshot | Xcode. Nothing on the phone.            |
+| WebDriverAgent over HTTP | screenshot (preferred), UI tree, tap, swipe, type, buttons                                                                                                              | a runner built and running on the phone |
 
 The interesting part is the second lane's transport. A device CoreDevice has connected to is
 already routable from this Mac at an IPv6 address it reports as `tunnelIPAddress` — an `fd…::1`
@@ -179,6 +182,9 @@ printf '%s\n' \
 | `ios_device_install`          | Install a `.app` or `.ipa`                           | **yes** |
 | `ios_device_launch`           | Launch with arguments, environment, and log capture  | **yes** |
 | `ios_device_read_logs`        | Page through a launched app's captured console       | **yes** |
+| `ios_device_open_url`         | Open a deep link, universal link or web URL          | **yes** |
+| `ios_device_uninstall`        | Remove an app and its data (requires `confirm`)      | **yes** |
+| `ios_device_set_environment`  | Dark mode, text size, contrast, motion, location     | **yes** |
 | `ios_device_terminate`        | Kill a running app by bundle id                      | **yes** |
 | `ios_device_pull_container`   | Copy an app's data container to this Mac             | **yes** |
 | `ios_device_restart_wda`      | Stop and restart the WebDriverAgent runner           | **yes** |
@@ -258,6 +264,19 @@ reaching for coordinates.
 - **`IOS_DEVICE_LAUNCH_ARGS` applies silently** when a launch passes no `arguments`. The result
   reports `argumentsFrom` so you can tell which happened; pass `arguments: []` to mean "no flags"
   deliberately.
+- **A screenshot no longer needs the runner.** Since Xcode 27, `devicectl device capture
+screenshot` captures the phone with no WebDriverAgent at all. It is the fallback rather than
+  the default: measured at ~1.7s and ~7.5 MB per capture against the runner's ~0.6s. A
+  screenshot that works therefore says nothing about whether taps will — check
+  `ios_device_diagnostics` for that.
+- **`--help` lists more than the phone does.** `capture screen-record`, `simulate statusBar` and
+  `simulate biometrics` all appear, and a physical iPhone on iOS 27.0 refuses each — "Screen
+  Recording is not supported by this device" — because they are simulator capabilities.
+  `orientation set` is worse: it reports success and the device stays in portrait. None of them
+  is exposed here. The device's own list is `capabilities` in `devicectl list devices`.
+- **Staging changes the owner's phone.** Dark mode, text size and a simulated location persist
+  after this server is gone. `ios_device_set_environment` says so in its description; put them
+  back, and pass `clear_location: true` when done.
 - **There is no root-free way to a device's system log.** `log collect --device` and `log stream`
   need sudo. What does work is `devicectl … launch --console`, which is why logs come from
   `ios_device_launch` with `capture_logs: true` rather than from a tool that reads an app already
