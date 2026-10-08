@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 
 import { BUILD_INFO } from "#/build-info";
+import type { SpawnConsole } from "#/client/console";
 import { DeviceClient } from "#/client/device";
 import type { ExecImpl, Logger } from "#/client/exec";
 import type { Config } from "#/config";
@@ -18,6 +19,8 @@ export type CreateServerOptions = {
   fetch?: typeof fetch;
   /** Override starting the WebDriverAgent runner (tests): no process is spawned. */
   spawnRunner?: SpawnRunner;
+  /** Override starting a console capture (tests): no devicectl is spawned. */
+  spawnConsole?: SpawnConsole;
   logger?: Logger;
 };
 
@@ -27,7 +30,7 @@ export type CreatedServer = {
 };
 
 /**
- * A pure factory. The injectable seams — `exec`, `fetch` and `spawnRunner` —
+ * A pure factory. The injectable seams — `exec`, `fetch`, `spawnRunner` and `spawnConsole` —
  * are the whole reason the test suite can drive real tools through the real SDK
  * with no device, no Xcode, no WebDriverAgent and no process left running.
  * Nothing below `config.ts` reads `process.env`.
@@ -48,6 +51,7 @@ export const createServer = (opts: CreateServerOptions): CreatedServer => {
     ...(config.deviceId ? { defaultDeviceId: config.deviceId } : {}),
     ...(opts.exec ? { exec: opts.exec } : {}),
     ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    ...(opts.spawnConsole ? { spawnConsole: opts.spawnConsole } : {}),
     ...(opts.logger ? { logger: opts.logger } : {}),
   });
 

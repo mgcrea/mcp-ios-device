@@ -21,6 +21,9 @@ otherwise means a person holding the phone and narrating.
   on the call that made it.
 - **Manage the app.** Install a build, launch it with arguments, terminate it, pull its data
   container off the device.
+- **Read its logs.** Capture an app's stdout, stderr and `Logger`/`os_log` output from launch,
+  and page through it with a cursor. Read the device's crash reports, with the faulting thread
+  already symbolicated to library names. Neither needs root.
 - **TypeScript only.** Three npm dependencies at runtime, one of them our own, and no Python,
   no `iproxy`, no usbmux client, no Appium server. See
   [How it reaches the device](#how-it-reaches-the-device).
@@ -56,10 +59,10 @@ despite being a read on the device, because that data belongs to whoever holds t
 
 Two lanes, and knowing which is which explains every error message this server produces.
 
-| Lane                     | Carries                                                                     | Needs                                   |
-| ------------------------ | --------------------------------------------------------------------------- | --------------------------------------- |
-| `xcrun devicectl`        | devices, apps, install, launch, terminate, container copy, display geometry | Xcode. Nothing on the phone.            |
-| WebDriverAgent over HTTP | screenshot, UI tree, tap, swipe, type, buttons                              | a runner built and running on the phone |
+| Lane                     | Carries                                                                                                 | Needs                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `xcrun devicectl`        | devices, apps, install, launch, terminate, container copy, display geometry, app console, crash reports | Xcode. Nothing on the phone.            |
+| WebDriverAgent over HTTP | screenshot, UI tree, tap, swipe, type, buttons                                                          | a runner built and running on the phone |
 
 The interesting part is the second lane's transport. A device CoreDevice has connected to is
 already routable from this Mac at an IPv6 address it reports as `tunnelIPAddress` — an `fd…::1`
@@ -166,13 +169,16 @@ printf '%s\n' \
 | `ios_device_screenshot`       | The screen, scaled into point space                  | no      |
 | `ios_device_ui_tree`          | Flattened, pruned accessibility tree with tap points | no      |
 | `ios_device_wait_for_element` | Poll until something appears, or goes away           | no      |
+| `ios_device_list_crash_logs`  | Crash, jetsam and fault reports, newest first        | no      |
+| `ios_device_get_crash_log`    | One report: exception, reason, faulting frames       | no      |
 | `ios_device_tap`              | Tap a point                                          | **yes** |
 | `ios_device_tap_element`      | Tap by accessibility id, label or predicate          | **yes** |
 | `ios_device_swipe`            | Drag between two points                              | **yes** |
 | `ios_device_type`             | Type into the focused field, or a named one          | **yes** |
 | `ios_device_press_button`     | home, volume up, volume down                         | **yes** |
 | `ios_device_install`          | Install a `.app` or `.ipa`                           | **yes** |
-| `ios_device_launch`           | Launch with arguments and environment                | **yes** |
+| `ios_device_launch`           | Launch with arguments, environment, and log capture  | **yes** |
+| `ios_device_read_logs`        | Page through a launched app's captured console       | **yes** |
 | `ios_device_terminate`        | Kill a running app by bundle id                      | **yes** |
 | `ios_device_pull_container`   | Copy an app's data container to this Mac             | **yes** |
 | `ios_device_restart_wda`      | Stop and restart the WebDriverAgent runner           | **yes** |
@@ -184,11 +190,13 @@ can attach the device's standing state instead of spending a call on it.
 
 ```
 ios_device_diagnostics                                  → device connected, WDA answering
-ios_device_launch      { bundle_id: "io.mgcrea.Canopy" } → relaunches in demo mode
+ios_device_launch      { bundle_id: "io.mgcrea.Canopy", capture_logs: true }
+                                                         → relaunches in demo mode, recording its console
 ios_device_screenshot                                    → the Garden tab
 ios_device_ui_tree     { contains: "Today" }             → { type: "Button", label: "Today", tap: [140, 920] }
 ios_device_tap_element { label: "Today" }                → taps it, returns the new screen
 ios_device_type        { id: "search.field", text: "monstera" }
+ios_device_read_logs   { cursor: 18432, filter: "error|sync" } → only what that typing logged
 ios_device_pull_container { bundle_id: "io.mgcrea.Canopy",
                             source: "/Library/Application Support", confirm: true }
 ```
@@ -250,6 +258,17 @@ reaching for coordinates.
 - **`IOS_DEVICE_LAUNCH_ARGS` applies silently** when a launch passes no `arguments`. The result
   reports `argumentsFrom` so you can tell which happened; pass `arguments: []` to mean "no flags"
   deliberately.
+- **There is no root-free way to a device's system log.** `log collect --device` and `log stream`
+  need sudo. What does work is `devicectl … launch --console`, which is why logs come from
+  `ios_device_launch` with `capture_logs: true` rather than from a tool that reads an app already
+  running: the console has to be attached when the process starts. `Logger`/`os_log` only reaches
+  it with `OS_ACTIVITY_DT_MODE` set in the app's environment, which the capture does for you.
+  Measured on iOS 27.0, a React Native app sent more than 1,700 lines in eight seconds with it,
+  framework subsystems such as `[MC]` included.
+- **Stopping a capture must not stop the app.** devicectl forwards every catchable signal it
+  receives to the app it launched, so a SIGTERM or a terminal's Ctrl-C to the capture kills the
+  app too. The capture runs in its own process group and is only ever sent SIGKILL, which leaves
+  the app running. It ends by itself when the app exits.
 - **An alert swallows every tap** while reporting nothing useful. Action results include an
   `alert` field when one is on screen.
 - **WebDriverAgent reports booleans as `"1"` and `"0"`**, not `true`/`false`. Only relevant

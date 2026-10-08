@@ -1,7 +1,8 @@
-import { copyFile, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, writeFile } from "node:fs/promises";
 
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 
+import type { ConsoleProcess, SpawnConsole } from "#/client/console";
 import type { ExecImpl, ExecResult } from "#/client/exec";
 import { loadConfig, type Config } from "#/config";
 import { createServer } from "#/server";
@@ -156,9 +157,63 @@ export const spawnMock =
     return 4242;
   };
 
+/**
+ * A console capture that never reaches devicectl: it writes devicectl's own
+ * launch line, then whatever the test hands it, to the real log file — so the
+ * reader, the cursor and the line shaping all run against a real file.
+ */
+export type ConsoleMock = {
+  spawn: SpawnConsole;
+  calls: { command: string; args: string[]; logPath: string }[];
+  /** Append to the most recent capture's file, as the app logging would. */
+  write: (text: string) => Promise<void>;
+  /** End the most recent capture, as the app exiting would. */
+  exit: (code?: number | null) => void;
+  killed: number;
+};
+
+export const consoleMock = (
+  opts: { launchLine?: string | false; exitCode?: number } = {},
+): ConsoleMock => {
+  let finish: ((code: number | null) => void) | undefined;
+  const mock: ConsoleMock = {
+    calls: [],
+    killed: 0,
+    write: async (text) => appendFile(mock.calls.at(-1)?.logPath as string, text),
+    exit: (code = 0) => finish?.(code),
+    spawn: async (command, args, { logPath }): Promise<ConsoleProcess> => {
+      mock.calls.push({ command, args, logPath });
+      const bundleId = args[args.indexOf("--environment-variables") + 2];
+      const line =
+        opts.launchLine === undefined
+          ? `Launched application with ${bundleId} bundle identifier.\nWaiting for the application to terminate…\n`
+          : opts.launchLine || "";
+      await appendFile(logPath, line);
+      const exited = new Promise<number | null>((resolve) => {
+        finish = resolve;
+      });
+      if (opts.exitCode !== undefined) finish?.(opts.exitCode);
+      return {
+        pid: 31337,
+        exited,
+        kill: () => {
+          mock.killed += 1;
+          finish?.(null);
+        },
+      };
+    },
+  };
+  return mock;
+};
+
 export const connect = async (
   env: Record<string, string> = {},
-  opts: { exec?: ExecImpl; fetch?: FetchLike; spawnRunner?: SpawnRunner } = {},
+  opts: {
+    exec?: ExecImpl;
+    fetch?: FetchLike;
+    spawnRunner?: SpawnRunner;
+    spawnConsole?: SpawnConsole;
+  } = {},
 ) => {
   const config: Config = loadConfig(env, ABSENT_CONFIG);
   const { server } = createServer({
@@ -168,6 +223,8 @@ export const connect = async (
     // Defaulted, never optional: a test that reached the real one would leave an
     // xcodebuild running on whoever ran the suite.
     spawnRunner: opts.spawnRunner ?? spawnMock(),
+    // Defaulted for the same reason: the real one launches an app on a phone.
+    spawnConsole: opts.spawnConsole ?? consoleMock().spawn,
   });
 
   // Both halves of a linked pair must come from the *same* package: v2 exports

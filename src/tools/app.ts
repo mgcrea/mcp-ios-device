@@ -69,7 +69,8 @@ export const registerAppTools = (
         "Launch an app on the device, optionally with launch arguments, and bring it to the " +
         "foreground. Terminates a running instance first by default, so this is also how you " +
         "restart into a known state. Read the `arguments` note before launching anything that " +
-        "talks to a real account.",
+        "talks to a real account. Pass `capture_logs: true` to record the app's console for " +
+        "ios_device_read_logs — that is the only way to see its logs.",
       inputSchema: z.object({
         device: deviceArg,
         bundle_id: bundleIdArg,
@@ -96,13 +97,47 @@ export const registerAppTools = (
             "Kill a running instance first. On by default, because relaunching without it " +
               "foregrounds the old process and silently ignores the arguments you just passed.",
           ),
+        capture_logs: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Record the app's stdout, stderr and Logger/os_log output until it exits, for " +
+              "ios_device_read_logs. Sets OS_ACTIVITY_DT_MODE in the app's environment, which " +
+              "is what makes unified logging reach the console, as it does under Xcode. Replaces " +
+              "any earlier capture of the same app.",
+          ),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ device, bundle_id, arguments: args, environment, terminate_existing }) =>
+    async ({ device, bundle_id, arguments: args, environment, terminate_existing, capture_logs }) =>
       wrap(async () => {
         const target = await client.resolveDevice(device);
         const launchArgs = args ?? ctx.config.launchArgs;
+        if (capture_logs) {
+          const capture = await client.consoles.launch({
+            device: target.id,
+            deviceName: target.name,
+            bundleId: bundle_id,
+            args: launchArgs,
+            env: environment ?? {},
+            terminateExisting: terminate_existing,
+            outputDir: ctx.config.outputDir,
+            // Well under a transport's 60s, whatever IOS_DEVICE_TIMEOUT_MS says:
+            // that budget is sized for installs, and this call returns as soon as
+            // the app is up rather than when it exits.
+            startTimeoutMs: Math.min(ctx.config.execTimeoutMs, 20_000),
+          });
+          return {
+            launched: bundle_id,
+            device: target.name ?? target.id,
+            arguments: launchArgs,
+            argumentsFrom: args ? "call" : "IOS_DEVICE_LAUNCH_ARGS",
+            // `--console` blocks until exit, so the pid is not in its answer.
+            pid: await client.pidFor(target, bundle_id),
+            capturingLogs: client.consoles.running(capture),
+            log: capture.path,
+          };
+        }
         const process = await client.devicectl.launch(target.id, bundle_id, {
           args: launchArgs,
           ...(environment ? { env: environment } : {}),

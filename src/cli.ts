@@ -35,7 +35,11 @@ const main = async (): Promise<void> => {
   );
   const configPath = defaultConfigPath();
   const config = loadConfig(process.env, configPath);
-  const { server } = createServer({ config, logger: stderrLogger });
+  const { server, client } = createServer({ config, logger: stderrLogger });
+  // Console captures are detached so a terminal's Ctrl-C cannot reach them (see
+  // `#/client/console`), which means nothing else stops them. SIGKILL, so the
+  // apps they were watching keep running.
+  process.on("exit", () => client.consoles.stopAll());
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // The banner is not decoration. It prints before anything can fail, and it is

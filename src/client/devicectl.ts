@@ -79,6 +79,18 @@ export type RawApp = {
   url?: string;
 };
 
+/** One entry of `device info files`. Only the fields the crash tools read. */
+export type RawFile = {
+  name?: string;
+  relativePath?: string;
+  metadata?: {
+    lastModDate?: string;
+    size?: number;
+    extendedAttributes?: { bug_type?: string };
+  };
+  resources?: { isDirectory?: boolean };
+};
+
 export type RawProcess = { processIdentifier?: number; executable?: string };
 
 type Envelope = { info?: unknown; result?: unknown; error?: unknown };
@@ -298,6 +310,47 @@ export class Devicectl {
       "appDataContainer",
       "--domain-identifier",
       opts.bundleId,
+      "--source",
+      opts.source,
+      "--destination",
+      opts.destination,
+    ]);
+  }
+
+  /**
+   * Everything under the device's crash-report directory — `systemCrashLogs`,
+   * the same files Xcode's Devices window shows as device logs. Readable without
+   * root or a sysdiagnose, and listed in full: measured at ~500 entries, most of
+   * them analytics and resource reports rather than crashes, which is why the
+   * tool filters by report type.
+   */
+  async listCrashFiles(device: string): Promise<RawFile[]> {
+    const result = (await this.run([
+      "device",
+      "info",
+      "files",
+      "--device",
+      device,
+      "--domain-type",
+      "systemCrashLogs",
+    ])) as { files?: RawFile[] } | undefined;
+    return result?.files ?? [];
+  }
+
+  async copyCrashFile(
+    device: string,
+    opts: { source: string; destination: string },
+  ): Promise<unknown> {
+    assertNoShellMetachars("destination", opts.destination);
+    assertNoShellMetachars("source", opts.source);
+    return this.run([
+      "device",
+      "copy",
+      "from",
+      "--device",
+      device,
+      "--domain-type",
+      "systemCrashLogs",
       "--source",
       opts.source,
       "--destination",

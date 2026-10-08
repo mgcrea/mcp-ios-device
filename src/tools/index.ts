@@ -6,6 +6,7 @@ import { registerAppTools } from "#/tools/app";
 import { registerDiagnosticsTools } from "#/tools/diagnostics";
 import { registerInputTools } from "#/tools/input";
 import { registerInspectTools } from "#/tools/inspect";
+import { registerConsoleLogTools, registerCrashLogTools } from "#/tools/logs";
 import { registerRunnerTools, type SpawnRunner } from "#/tools/runner";
 
 export type ToolContext = {
@@ -40,11 +41,15 @@ export const registerTools = (
 ): void => {
   registerDiagnosticsTools(server, client, ctx);
   registerInspectTools(server, client, ctx);
+  registerCrashLogTools(server, client, ctx);
 
   if (!ctx.allowWrites) return;
 
   registerInputTools(server, client, ctx);
   registerAppTools(server, client, ctx);
+  // Read-only, but gated with launch: a capture only exists once
+  // ios_device_launch has started one, so ungated it could only ever fail.
+  registerConsoleLogTools(server, client);
   // Write-gated with the rest: it kills a process the user may be watching
   // and starts one that outlives this server.
   registerRunnerTools(server, client, ctx, spawnRunner);

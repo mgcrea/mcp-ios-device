@@ -1,3 +1,4 @@
+import { ConsoleCaptures, type SpawnConsole } from "#/client/console";
 import { Devicectl, type DisplayInfo, type RawApp } from "#/client/devicectl";
 import { DeviceNotFoundError, IosDeviceError } from "#/client/errors";
 import { defaultExec, type ExecImpl, type Logger } from "#/client/exec";
@@ -23,11 +24,15 @@ export type DeviceClientOptions = {
   defaultDeviceId?: string | undefined;
   exec?: ExecImpl | undefined;
   fetch?: typeof fetch | undefined;
+  /** Override starting a console capture (tests): no devicectl is spawned. */
+  spawnConsole?: SpawnConsole | undefined;
   logger?: Logger | undefined;
 };
 
 export class DeviceClient {
   readonly devicectl: Devicectl;
+  /** App consoles being captured. Process state, so it lives as long as this client. */
+  readonly consoles: ConsoleCaptures;
   readonly exec: ExecImpl;
   readonly sipsPath: string;
   readonly execTimeoutMs: number;
@@ -54,6 +59,7 @@ export class DeviceClient {
       ...(opts.exec ? { exec: opts.exec } : {}),
       ...(opts.logger ? { logger: opts.logger } : {}),
     });
+    this.consoles = new ConsoleCaptures({ xcrunPath: opts.xcrunPath, spawn: opts.spawnConsole });
   }
 
   async listDevices(opts: { fresh?: boolean } = {}): Promise<DeviceSummary[]> {

@@ -1,5 +1,6 @@
-import { writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import type { ScreenHost } from "@mgcrea/mcp-ios-core";
 import { describe, expect, it } from "vitest";
@@ -12,6 +13,7 @@ import {
   ABSENT_CONFIG,
   connect,
   connectedDevice,
+  consoleMock,
   DEVICE_ID,
   execMock,
   sampleSource,
@@ -58,8 +60,10 @@ const WRITES = { IOS_DEVICE_ALLOW_WRITES: "1" };
 
 const READ_TOOLS = [
   "ios_device_diagnostics",
+  "ios_device_get_crash_log",
   "ios_device_get_display_info",
   "ios_device_list_apps",
+  "ios_device_list_crash_logs",
   "ios_device_list_devices",
   "ios_device_screenshot",
   "ios_device_ui_tree",
@@ -73,6 +77,8 @@ const WRITE_TOOLS = [
   "ios_device_launch",
   "ios_device_press_button",
   "ios_device_pull_container",
+  // Read-only, but gated with launch: there is nothing to read without it.
+  "ios_device_read_logs",
   "ios_device_restart_wda",
   "ios_device_swipe",
   "ios_device_tap",
@@ -870,6 +876,270 @@ describe("app lifecycle", () => {
     // is the layer this must be caught at.
     expect(result.isToolError).toBe(true);
     expect(String(result.error)).toContain("confirm");
+  });
+});
+
+describe("console logs", () => {
+  const outputDir = async (): Promise<Record<string, string>> => ({
+    ...WRITES,
+    IOS_DEVICE_OUTPUT_DIR: await mkdtemp(join(tmpdir(), "ios-device-logs-")),
+  });
+
+  it("launches through --console with unified logging mirrored, keeping argv last", async () => {
+    const console = consoleMock();
+    const harness = await connect(await outputDir(), { spawnConsole: console.spawn });
+    const result = await harness.call("ios_device_launch", {
+      bundle_id: "io.mgcrea.Canopy",
+      arguments: ["-Flag", "a b; rm -rf /"],
+      environment: { FOO: "1" },
+      capture_logs: true,
+    });
+    expect(result.isToolError).toBe(false);
+    expect(result.capturingLogs).toBe(true);
+    expect(result.pid).toBe(4242);
+    const args = console.calls[0]?.args as string[];
+    expect(args).toContain("--console");
+    const env = JSON.parse(args[args.indexOf("--environment-variables") + 1] as string);
+    expect(env).toEqual({ OS_ACTIVITY_DT_MODE: "YES", FOO: "1" });
+    expect(args.slice(-3)).toEqual(["io.mgcrea.Canopy", "-Flag", "a b; rm -rf /"]);
+  });
+
+  it("lets the caller's environment override OS_ACTIVITY_DT_MODE", async () => {
+    const console = consoleMock();
+    const harness = await connect(await outputDir(), { spawnConsole: console.spawn });
+    await harness.call("ios_device_launch", {
+      bundle_id: "io.mgcrea.Canopy",
+      environment: { OS_ACTIVITY_DT_MODE: "NO" },
+      capture_logs: true,
+    });
+    const args = console.calls[0]?.args as string[];
+    expect(JSON.parse(args[args.indexOf("--environment-variables") + 1] as string)).toEqual({
+      OS_ACTIVITY_DT_MODE: "NO",
+    });
+  });
+
+  it("reports a launch that devicectl gave up on, with its reason", async () => {
+    const console = consoleMock({ launchLine: "ERROR: The device is locked.\n", exitCode: 1 });
+    const harness = await connect(await outputDir(), { spawnConsole: console.spawn });
+    const result = await harness.call("ios_device_launch", {
+      bundle_id: "io.mgcrea.Canopy",
+      capture_logs: true,
+    });
+    expect(result.isToolError).toBe(true);
+    expect(String(result.error)).toContain("The device is locked");
+  });
+
+  it("shortens Xcode's line prefix and pages with a byte cursor", async () => {
+    const console = consoleMock();
+    const harness = await connect(await outputDir(), { spawnConsole: console.spawn });
+    await harness.call("ios_device_launch", { bundle_id: "io.mgcrea.Canopy", capture_logs: true });
+    await console.write(
+      "2026-10-08 22:09:45.583026+0200 Canopy[13938:5106663] [Sync] started\n" +
+        "plain stdout line\n",
+    );
+    const first = await harness.call("ios_device_read_logs", {});
+    expect(first.lines).toEqual([
+      "Launched application with io.mgcrea.Canopy bundle identifier.",
+      "Waiting for the application to terminate…",
+      "22:09:45.583 [Sync] started",
+      "plain stdout line",
+    ]);
+    expect(first.capturing).toBe(true);
+
+    await console.write("after the tap\nhalf a li");
+    const second = await harness.call("ios_device_read_logs", { cursor: first.next });
+    // The unterminated line is still being written, so it waits for the next read.
+    expect(second.lines).toEqual(["after the tap"]);
+
+    await console.write("ne\n");
+    const third = await harness.call("ios_device_read_logs", { cursor: second.next });
+    expect(third.lines).toEqual(["half a line"]);
+  });
+
+  it("filters before limiting, keeps the newest and counts the rest", async () => {
+    const console = consoleMock();
+    const harness = await connect(await outputDir(), { spawnConsole: console.spawn });
+    await harness.call("ios_device_launch", { bundle_id: "io.mgcrea.Canopy", capture_logs: true });
+    await console.write("error one\nnoise\nERROR two\nnoise\nerror three\n");
+    const result = await harness.call("ios_device_read_logs", { filter: "error", limit: 2 });
+    expect(result.lines).toEqual(["ERROR two", "error three"]);
+    expect(result.matched).toBe(3);
+    expect(result.omitted).toBe(1);
+  });
+
+  it("keeps the capture readable after the app exits", async () => {
+    const console = consoleMock();
+    const harness = await connect(await outputDir(), { spawnConsole: console.spawn });
+    await harness.call("ios_device_launch", { bundle_id: "io.mgcrea.Canopy", capture_logs: true });
+    await console.write("last words");
+    console.exit(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const result = await harness.call("ios_device_read_logs", { filter: "last" });
+    expect(result.capturing).toBe(false);
+    expect(result.exitCode).toBe(0);
+    // Nothing more is coming, so a final unterminated line is complete.
+    expect(result.lines).toEqual(["last words"]);
+  });
+
+  it("replaces an earlier capture of the same app rather than running two", async () => {
+    const console = consoleMock();
+    const harness = await connect(await outputDir(), { spawnConsole: console.spawn });
+    await harness.call("ios_device_launch", { bundle_id: "io.mgcrea.Canopy", capture_logs: true });
+    await harness.call("ios_device_launch", { bundle_id: "io.mgcrea.Canopy", capture_logs: true });
+    expect(console.killed).toBe(1);
+  });
+
+  it("says how to start a capture when there is none", async () => {
+    const result = await (await connect(WRITES)).call("ios_device_read_logs", {});
+    expect(result.isToolError).toBe(true);
+    expect(String(result.remedy)).toContain("capture_logs");
+  });
+
+  it("rejects a filter that is not a regular expression, with an example", async () => {
+    const console = consoleMock();
+    const harness = await connect(await outputDir(), { spawnConsole: console.spawn });
+    await harness.call("ios_device_launch", { bundle_id: "io.mgcrea.Canopy", capture_logs: true });
+    const result = await harness.call("ios_device_read_logs", { filter: "[Sync" });
+    expect(result.isToolError).toBe(true);
+    expect(String(result.remedy)).toContain("Escape");
+  });
+});
+
+describe("crash logs", () => {
+  const files = {
+    files: [
+      { name: "Retired", relativePath: "Retired", resources: { isDirectory: true } },
+      {
+        relativePath: "Retired/Canopy-2026-10-02-213409.ips",
+        metadata: {
+          lastModDate: "2026-10-02T19:34:10.000Z",
+          size: 49106,
+          extendedAttributes: { bug_type: "309" },
+        },
+      },
+      {
+        relativePath: "Canopy-2026-10-08-083712.ips",
+        metadata: {
+          lastModDate: "2026-10-08T06:37:13.000Z",
+          size: 116545,
+          extendedAttributes: { bug_type: "309" },
+        },
+      },
+      {
+        relativePath: "JetsamEvent-2026-10-08-003749.ips",
+        metadata: {
+          lastModDate: "2026-10-08T00:37:49.000Z",
+          size: 9000,
+          extendedAttributes: { bug_type: "298" },
+        },
+      },
+      {
+        relativePath: "Analytics-2026-10-08-020012.ips.ca.synced",
+        metadata: {
+          lastModDate: "2026-10-08T00:00:13.000Z",
+          size: 1447069,
+          extendedAttributes: { bug_type: "211" },
+        },
+      },
+    ],
+  };
+
+  it("lists crashes newest first, leaving analytics out by default", async () => {
+    const harness = await connect({}, { exec: execMock({ "device info files": files }) });
+    const result = await harness.call("ios_device_list_crash_logs", {});
+    expect((result.reports as { name: string }[]).map((r) => r.name)).toEqual([
+      "Canopy-2026-10-08-083712.ips",
+      "JetsamEvent-2026-10-08-003749.ips",
+      "Retired/Canopy-2026-10-02-213409.ips",
+    ]);
+  });
+
+  it("narrows to one process and one kind", async () => {
+    const harness = await connect({}, { exec: execMock({ "device info files": files }) });
+    const result = await harness.call("ios_device_list_crash_logs", {
+      process: "canopy",
+      kinds: ["crash"],
+      limit: 1,
+    });
+    expect(result.total).toBe(2);
+    expect(result.reports).toEqual([
+      {
+        name: "Canopy-2026-10-08-083712.ips",
+        process: "Canopy",
+        kind: "crash",
+        date: "2026-10-08T06:37:13.000Z",
+        size: 116545,
+      },
+    ]);
+  });
+
+  it("returns the exception and the faulting frames with image names resolved", async () => {
+    const header = {
+      app_name: "Canopy",
+      bundleID: "io.mgcrea.Canopy",
+      app_version: "1.0",
+      bug_type: "309",
+    };
+    const report = {
+      procName: "Canopy",
+      pid: 4242,
+      exception: { type: "EXC_BREAKPOINT", signal: "SIGTRAP" },
+      termination: { namespace: "SIGNAL", code: 5, indicator: "Trace/BPT trap: 5" },
+      asi: { libswiftCore: ["Canopy/Garden.swift:42: Fatal error: Unexpectedly found nil"] },
+      faultingThread: 1,
+      threads: [
+        { frames: [] },
+        {
+          queue: "com.apple.main-thread",
+          frames: [
+            {
+              imageIndex: 1,
+              symbol: "Garden.load()",
+              symbolLocation: 12,
+              sourceFile: "Garden.swift",
+              sourceLine: 42,
+            },
+            { imageIndex: 0, imageOffset: 255 },
+          ],
+        },
+      ],
+      usedImages: [{ name: "libswiftCore.dylib" }, { name: "Canopy" }],
+    };
+    const base = execMock();
+    const exec: ExecImpl = async (path, args, timeoutMs) => {
+      if (args.includes("copy")) {
+        await writeFile(
+          args[args.indexOf("--destination") + 1] as string,
+          `${JSON.stringify(header)}\n${JSON.stringify(report, null, 2)}`,
+        );
+      }
+      return base(path, args, timeoutMs);
+    };
+    const harness = await connect(
+      { IOS_DEVICE_OUTPUT_DIR: await mkdtemp(join(tmpdir(), "ios-device-crash-")) },
+      { exec },
+    );
+    const result = await harness.call("ios_device_get_crash_log", {
+      name: "Canopy-2026-10-08-083712.ips",
+    });
+    const crash = result.crash as Record<string, unknown>;
+    expect(crash.exception).toEqual({ type: "EXC_BREAKPOINT", signal: "SIGTRAP" });
+    expect(crash.faultingThread).toEqual({
+      index: 1,
+      queue: "com.apple.main-thread",
+      frames: ["0 Canopy Garden.load() + 12 (Garden.swift:42)", "1 libswiftCore.dylib 0xff"],
+    });
+    expect(JSON.stringify(crash.applicationSpecificInfo)).toContain("Fatal error");
+    expect((result.header as Record<string, unknown>).bundleId).toBe("io.mgcrea.Canopy");
+  });
+
+  it("refuses a name that climbs out of the crash directory", async () => {
+    const result = await (
+      await connect()
+    ).call("ios_device_get_crash_log", {
+      name: "Retired/../../etc/x.ips",
+    });
+    expect(result.isToolError).toBe(true);
   });
 });
 
