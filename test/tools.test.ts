@@ -883,12 +883,13 @@ describe("app lifecycle", () => {
   });
 });
 
-describe("console logs", () => {
-  const outputDir = async (): Promise<Record<string, string>> => ({
-    ...WRITES,
-    IOS_DEVICE_OUTPUT_DIR: await mkdtemp(join(tmpdir(), "ios-device-logs-")),
-  });
+/** Writes enabled, with captures going to a fresh directory per test. */
+const outputDir = async (): Promise<Record<string, string>> => ({
+  ...WRITES,
+  IOS_DEVICE_OUTPUT_DIR: await mkdtemp(join(tmpdir(), "ios-device-logs-")),
+});
 
+describe("console logs", () => {
   it("launches through --console with unified logging mirrored, keeping argv last", async () => {
     const console = consoleMock();
     const harness = await connect(await outputDir(), { spawnConsole: console.spawn });

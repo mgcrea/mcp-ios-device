@@ -265,7 +265,7 @@ reaching for coordinates.
   reports `argumentsFrom` so you can tell which happened; pass `arguments: []` to mean "no flags"
   deliberately.
 - **A screenshot no longer needs the runner.** Since Xcode 27, `devicectl device capture
-screenshot` captures the phone with no WebDriverAgent at all. It is the fallback rather than
+  screenshot` captures the phone with no WebDriverAgent at all. It is the fallback rather than
   the default: measured at ~1.7s and ~7.5 MB per capture against the runner's ~0.6s. A
   screenshot that works therefore says nothing about whether taps will — check
   `ios_device_diagnostics` for that.
