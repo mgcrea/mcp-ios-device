@@ -35,7 +35,7 @@ export type SpawnRunner = (
  * the result, so a runner left by a previous call is found by inspecting the
  * process table rather than by remembering a pid.
  */
-const defaultSpawn: SpawnRunner = async (command, args, { logPath, env }) => {
+export const defaultSpawn: SpawnRunner = async (command, args, { logPath, env }) => {
   const log = await open(logPath, "a");
   try {
     // Written before anything can fail, so the log always says which run it
@@ -51,12 +51,25 @@ const defaultSpawn: SpawnRunner = async (command, args, { logPath, env }) => {
     // asynchronously on this event, not by throwing. Unhandled it becomes an
     // uncaught exception that takes the whole server down some milliseconds
     // after this function has already returned a pid and reported success.
-    child.on("error", (err) => {
-      void log.write(`spawn failed: ${err.message}\n`).catch(() => {});
+    // Waited for before the log is closed: the failure arrives on that event
+    // after this function would otherwise have returned, and a write made then
+    // lands on a closed fd, losing the reason.
+    const failure = await new Promise<Error | undefined>((resolve) => {
+      child.once("spawn", () => resolve(undefined));
+      child.once("error", resolve);
+    });
+    child.on("error", () => {
+      // Any later error, once the outcome above is settled: handled, so it
+      // cannot take the server down.
     });
     child.unref();
-    if (child.pid === undefined) {
-      throw new IosDeviceError(`Could not start ${command} — the process had no pid.`);
+    if (failure || child.pid === undefined) {
+      if (failure) await log.write(`spawn failed: ${failure.message}\n`).catch(() => {});
+      throw new IosDeviceError(
+        failure
+          ? `Could not start ${command}: ${failure.message}`
+          : `Could not start ${command} — the process had no pid.`,
+      );
     }
     return child.pid;
   } finally {

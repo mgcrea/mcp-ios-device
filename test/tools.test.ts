@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -9,6 +9,7 @@ import type { ExecImpl } from "#/client/exec";
 import type { DeviceSummary } from "#/client/shape";
 import { loadConfig } from "#/config";
 import { createServer } from "#/server";
+import { defaultSpawn } from "#/tools/runner";
 import {
   ABSENT_CONFIG,
   connect,
@@ -447,6 +448,17 @@ describe("screen geometry", () => {
     await harness.call("ios_device_get_display_info");
     await harness.call("ios_device_get_display_info");
     expect(displayCalls(log)).toBe(2);
+  });
+});
+
+describe("starting the runner process", () => {
+  it("logs and reports why a spawn failed, rather than only that it had no pid", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ios-device-spawn-"));
+    const logPath = join(dir, "wda-runner.log");
+    await expect(
+      defaultSpawn(join(dir, "missing-wda.sh"), ["run"], { logPath, env: {} }),
+    ).rejects.toThrow(/ENOENT/);
+    expect(await readFile(logPath, "utf8")).toContain("spawn failed");
   });
 });
 
