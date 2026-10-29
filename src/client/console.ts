@@ -210,6 +210,14 @@ export class ConsoleCaptures {
     // capture itself is fine. Said in the result instead of thrown.
   }
 
+  /** The device id behind a capture that `hint` names by id or by name, if one does. */
+  deviceFor(hint: string): string | undefined {
+    for (const capture of this.captures.values()) {
+      if (capture.device === hint || capture.deviceName === hint) return capture.device;
+    }
+    return undefined;
+  }
+
   find(device: string | undefined, bundleId: string | undefined): Capture | undefined {
     if (device && bundleId) return this.captures.get(this.key(device, bundleId));
     const all = [...this.captures.values()].filter(

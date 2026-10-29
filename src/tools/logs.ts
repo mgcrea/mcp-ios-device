@@ -192,8 +192,12 @@ export const registerConsoleLogTools = (server: McpServer, client: DeviceClient)
       wrap(async () => {
         // Resolved only when named: a capture outlives its device's tunnel, and
         // reading a file on this Mac should not fail because the phone slept.
-        const target = device ? await client.resolveDevice(device) : undefined;
-        const capture = client.consoles.find(target?.id, bundle_id);
+        // A name or id a capture already carries is matched without asking the
+        // device at all; resolveDevice, which pokes a dormant one, is left for
+        // a hint no capture knows, such as a hardware UDID.
+        const captured = device ? client.consoles.deviceFor(device) : undefined;
+        const target = device && !captured ? await client.resolveDevice(device) : undefined;
+        const capture = client.consoles.find(captured ?? target?.id, bundle_id);
         if (!capture) {
           throw new IosDeviceError(
             bundle_id ? `No log capture for ${bundle_id}.` : "No log capture is running.",

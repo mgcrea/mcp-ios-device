@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { ScreenHost } from "@mgcrea/mcp-ios-core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ExecImpl } from "#/client/exec";
 import type { DeviceSummary } from "#/client/shape";
@@ -1054,6 +1054,34 @@ describe("console logs", () => {
     await console.write("ne\n");
     const third = await harness.call("ios_device_read_logs", { cursor: second.next });
     expect(third.lines).toEqual(["half a line"]);
+  });
+
+  it("reads a named device's capture without waking the device", async () => {
+    // The capture is a file on this Mac. A phone that has since gone dormant
+    // must not cost a lockState poke, or a DeviceNotFoundError, to read it.
+    const console = consoleMock();
+    const log: string[][] = [];
+    const harness = await connect(await outputDir(), {
+      exec: tunnelStates(["connected", "unavailable"], log),
+      spawnConsole: console.spawn,
+    });
+    await harness.call("ios_device_launch", { bundle_id: "io.mgcrea.Canopy", capture_logs: true });
+    await console.write("hello\n");
+    const before = log.length;
+    // Past the 2s device-list cache, as any later turn of a conversation is.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 3000);
+    let byId: Record<string, unknown>;
+    let byName: Record<string, unknown>;
+    try {
+      byId = await harness.call("ios_device_read_logs", { device: DEVICE_ID });
+      byName = await harness.call("ios_device_read_logs", { device: "Olivier's iPhone" });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(byId.lines).toContain("hello");
+    expect(byName.lines).toContain("hello");
+    expect(log.slice(before).some((call) => call.join(" ").includes("lockState"))).toBe(false);
   });
 
   it("filters before limiting, keeps the newest and counts the rest", async () => {
