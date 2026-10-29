@@ -1098,6 +1098,27 @@ describe("console logs", () => {
     expect(String(result.error)).toContain("The device is locked");
   });
 
+  it("does not hand back the previous run's log after a relaunch failed", async () => {
+    // The relaunch kills the old capture first; if the new one then fails,
+    // reading the old file would present a dead run as the current one.
+    const first = consoleMock();
+    const locked = consoleMock({ launchLine: "ERROR: The device is locked.\n", exitCode: 1 });
+    let launches = 0;
+    const harness = await connect(await outputDir(), {
+      spawnConsole: (command, args, opts) =>
+        (launches++ === 0 ? first : locked).spawn(command, args, opts),
+    });
+    await harness.call("ios_device_launch", { bundle_id: "io.mgcrea.Canopy", capture_logs: true });
+    const relaunch = await harness.call("ios_device_launch", {
+      bundle_id: "io.mgcrea.Canopy",
+      capture_logs: true,
+    });
+    expect(relaunch.isToolError).toBe(true);
+    const read = await harness.call("ios_device_read_logs", { bundle_id: "io.mgcrea.Canopy" });
+    expect(read.isToolError).toBe(true);
+    expect(String(read.error)).toContain("No log capture");
+  });
+
   it("shortens Xcode's line prefix and pages with a byte cursor", async () => {
     const console = consoleMock();
     const harness = await connect(await outputDir(), { spawnConsole: console.spawn });

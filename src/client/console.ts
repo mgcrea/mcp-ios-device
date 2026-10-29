@@ -136,7 +136,14 @@ export class ConsoleCaptures {
     // A previous capture of the same app is replaced, never kept alongside:
     // two files filling with the same lines is a state where a reader picks
     // whichever it was handed and silently misses half of what happened.
-    this.captures.get(key)?.process.kill();
+    // Unregistered as it is killed, so a relaunch that then fails leaves no
+    // capture rather than presenting the dead run's file as the current one.
+    const previous = this.captures.get(key);
+    if (previous) {
+      previous.process.kill();
+      this.captures.delete(key);
+      if (this.latest === previous) this.latest = undefined;
+    }
 
     const dir = join(opts.outputDir, "logs");
     await mkdir(dir, { recursive: true });
