@@ -87,9 +87,12 @@ export const diagnose = async (
   // read, not the poke itself, so it stays accurate whether resolution
   // succeeded or — a dormant device that failed to wake — still threw.
   const before = devices;
-  const attemptedPoke = deviceHint
-    ? before.find((d) => d.id === deviceHint || d.udid === deviceHint || d.name === deviceHint)
-        ?.state !== "connected"
+  const wanted = deviceHint ?? client.defaultDeviceId;
+  const match = wanted
+    ? before.find((d) => d.id === wanted || d.udid === wanted || d.name === wanted)
+    : undefined;
+  const attemptedPoke = wanted
+    ? match !== undefined && match.tunnel.state !== "connected"
     : before.every((d) => d.state !== "connected") && before.some((d) => d.state === "paired");
 
   let target: DeviceSummary | undefined;

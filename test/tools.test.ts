@@ -232,6 +232,46 @@ describe("surviving a broken environment", () => {
     expect(String(result.nextSteps)).toContain("xcdevice");
   });
 
+  it("does not claim a poke for a device hint that matches nothing", async () => {
+    // resolveDevice throws on an unknown hint before poking anything.
+    const log: string[][] = [];
+    const result = await (
+      await connect({}, { exec: tunnelStates(["connected"], log) })
+    ).call("ios_device_diagnostics", { device: "nope" });
+    expect(ordering(log).poke).toBe(-1);
+    expect(result.tunnelPoked).toBeUndefined();
+  });
+
+  it("reports the poke of a dormant IOS_DEVICE_ID while another device is connected", async () => {
+    const other = { ...connectedDevice, identifier: "OTHER-DEVICE" };
+    let lists = 0;
+    const base = execMock();
+    const exec: ExecImpl = async (path, args, timeoutMs) => {
+      if (args.join(" ").includes("list devices")) {
+        const state = lists++ === 0 ? "unavailable" : "connected";
+        const dormant = {
+          ...connectedDevice,
+          connectionProperties: { ...connectedDevice.connectionProperties, tunnelState: state },
+        };
+        const jsonPath = args[args.indexOf("--json-output") + 1] as string;
+        await writeFile(
+          jsonPath,
+          JSON.stringify({ info: {}, result: { devices: [dormant, other] } }),
+        );
+        return { stdout: "", stderr: "" };
+      }
+      return base(path, args, timeoutMs);
+    };
+    const result = await (
+      await connect({ IOS_DEVICE_ID: DEVICE_ID }, { exec })
+    ).call("ios_device_diagnostics");
+    expect(result.tunnelPoked).toBe(true);
+    const reported = (result.devices as { id: string; tunnel: { state: string } }[]).find(
+      (d) => d.id === DEVICE_ID,
+    );
+    expect(reported?.tunnel.state).toBe("connected");
+  });
+
   it("does not poke a device whose tunnel is already up", async () => {
     const log: string[][] = [];
     const result = await (

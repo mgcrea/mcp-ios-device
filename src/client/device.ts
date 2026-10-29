@@ -126,6 +126,11 @@ export class DeviceClient {
     return this.listDevices({ fresh: true });
   }
 
+  /** The device `resolveDevice` falls back to when no hint is given. */
+  get defaultDeviceId(): string | undefined {
+    return this.opts.defaultDeviceId;
+  }
+
   /**
    * `ScreenHost.resolveTarget`, which is `resolveDevice` under the name the
    * shared tools know it by.
