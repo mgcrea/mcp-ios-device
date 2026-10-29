@@ -2,10 +2,9 @@ import { registerInputTools as registerShared } from "@mgcrea/mcp-ios-core";
 import type { McpServer } from "@modelcontextprotocol/server";
 
 import type { DeviceClient } from "#/client/device";
+import { EMPTY_SCREENSHOT_REMEDY } from "#/client/screenshot";
 import type { ToolContext } from "#/tools/index";
 import { DEVICE_NAMING } from "#/tools/util";
-
-export { EMPTY_SCREENSHOT_REMEDY } from "#/client/screenshot";
 
 /**
  * The drive half. None of these is registered unless IOS_DEVICE_ALLOW_WRITES is
@@ -30,7 +29,6 @@ export const registerInputTools = (
     capHint: "raise IOS_DEVICE_MAX_TREE_BYTES",
     // A simulator has no volume rocker worth pressing; a phone does.
     buttons: ["home", "volumeUp", "volumeDown"],
-    emptyScreenshotRemedy:
-      "Wake and unlock the device — a locked screen captures nothing — then retry.",
+    emptyScreenshotRemedy: EMPTY_SCREENSHOT_REMEDY,
   });
 };
