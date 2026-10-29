@@ -196,6 +196,9 @@ describe("surviving a broken environment", () => {
     expect(result.tunnelPoked).toBe(true);
     expect(result.devices[0].tunnel.state).toBe("connected");
     expect(String(result.problems)).not.toContain("tunnel");
+    // The passive read, then the poke's own fresh one. A third would re-read
+    // what the poke just read.
+    expect(ordering(log).lists).toHaveLength(2);
   });
 
   it("acquires the usage assertion between the two readings, not after both", async () => {

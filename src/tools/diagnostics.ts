@@ -108,8 +108,11 @@ export const diagnose = async (
   // that failed to wake still deserves this report to reflect its real state
   // rather than the passive read from before the attempt, and Developer Mode
   // and the DDI come off the same cached record and go stale the same way.
+  //
+  // Not `fresh`: the poke ends in a fresh read of its own, which `listDevices`
+  // has just cached, so a third `devicectl list devices` would re-read it.
   if (attemptedPoke) {
-    devices = await client.listDevices({ fresh: true });
+    devices = await client.listDevices();
     const resolved = target;
     if (resolved) target = devices.find((d) => d.id === resolved.id) ?? resolved;
   }
