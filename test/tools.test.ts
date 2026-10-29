@@ -392,6 +392,64 @@ describe("surviving a broken environment", () => {
   });
 });
 
+/** A PNG whose IHDR says `width` x `height`; nothing past the header is read. */
+const pngOfSize = (width: number, height: number): string => {
+  const header = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header, 0);
+  header.writeUInt32BE(13, 8);
+  header.write("IHDR", 12, "ascii");
+  header.writeUInt32BE(width, 16);
+  header.writeUInt32BE(height, 20);
+  return header.toString("base64");
+};
+
+// `devicectl device info displays` is a full spawn, and every action that
+// returns a screenshot asked for it again, though only the scale is used.
+const wdaShots = (shots: string[]): FetchLike => {
+  let taken = 0;
+  return wdaMock({
+    "/screenshot": () =>
+      new Response(
+        JSON.stringify({ value: shots[Math.min(taken++, shots.length - 1)], sessionId: "S1" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+  });
+};
+const displayCalls = (log: string[][]): number =>
+  log.filter((call) => call.join(" ").includes("device info displays")).length;
+
+describe("screen geometry", () => {
+  it("reads the geometry once for captures in the same orientation", async () => {
+    const log: string[][] = [];
+    const harness = await connect(WRITES, {
+      exec: execMock({}, log),
+      fetch: wdaShots([pngOfSize(1320, 2868)]),
+    });
+    await harness.call("ios_device_tap", { x: 10, y: 10, settle_ms: 0 });
+    await harness.call("ios_device_tap", { x: 20, y: 20, settle_ms: 0 });
+    expect(displayCalls(log)).toBe(1);
+  });
+
+  it("reads it again once the capture says the phone was rotated", async () => {
+    const log: string[][] = [];
+    const harness = await connect(WRITES, {
+      exec: execMock({}, log),
+      fetch: wdaShots([pngOfSize(1320, 2868), pngOfSize(2868, 1320)]),
+    });
+    await harness.call("ios_device_tap", { x: 10, y: 10, settle_ms: 0 });
+    await harness.call("ios_device_tap", { x: 20, y: 20, settle_ms: 0 });
+    expect(displayCalls(log)).toBe(2);
+  });
+
+  it("always reads it fresh when asked directly", async () => {
+    const log: string[][] = [];
+    const harness = await connect({}, { exec: execMock({}, log) });
+    await harness.call("ios_device_get_display_info");
+    await harness.call("ios_device_get_display_info");
+    expect(displayCalls(log)).toBe(2);
+  });
+});
+
 describe("restarting the runner", () => {
   // The grant is handed to an XCTest session at startup and never revisited, so
   // a restart is the only thing that can change `authorized`. That makes this

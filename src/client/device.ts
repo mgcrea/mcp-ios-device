@@ -33,6 +33,16 @@ export type DeviceClientOptions = {
   logger?: Logger | undefined;
 };
 
+/**
+ * Whether a PNG capture is wider than tall, from its IHDR; undefined when the
+ * bytes are not a PNG. Only the first 33 bytes are decoded, not the capture.
+ */
+const isLandscapePng = (pngBase64: string): boolean | undefined => {
+  const head = Buffer.from(pngBase64.slice(0, 44), "base64");
+  if (head.length < 24 || head.toString("ascii", 12, 16) !== "IHDR") return undefined;
+  return head.readUInt32BE(16) > head.readUInt32BE(20);
+};
+
 export class DeviceClient {
   readonly devicectl: Devicectl;
   /** App consoles being captured. Process state, so it lives as long as this client. */
@@ -50,6 +60,13 @@ export class DeviceClient {
    * unplugged mid-conversation look connected for long.
    */
   private deviceCache: { at: number; devices: DeviceSummary[] } | undefined;
+  /**
+   * Geometry per device, with the aspect of the capture it was read for. Every
+   * action that returns a screenshot asks for it, and only the scale is used;
+   * a capture whose aspect differs means the phone was rotated, and that is
+   * read again rather than guessed.
+   */
+  private geometry = new Map<string, { info: DisplayInfo; landscape: boolean | undefined }>();
 
   constructor(opts: DeviceClientOptions) {
     this.opts = opts;
@@ -237,8 +254,18 @@ export class DeviceClient {
     );
   }
 
-  async display(device: DeviceSummary): Promise<DisplayInfo> {
-    return this.devicectl.displays(device.id);
+  /**
+   * `ScreenHost.display`. With a capture, a geometry read for a capture of the
+   * same aspect is reused; without one (get_display_info, diagnostics) it is
+   * always read fresh, since that is the caller asking for it.
+   */
+  async display(device: DeviceSummary, pngBase64?: string): Promise<DisplayInfo> {
+    const landscape = pngBase64 === undefined ? undefined : isLandscapePng(pngBase64);
+    const cached = this.geometry.get(device.id);
+    if (landscape !== undefined && cached?.landscape === landscape) return cached.info;
+    const info = await this.devicectl.displays(device.id);
+    this.geometry.set(device.id, { info, landscape });
+    return info;
   }
 
   async apps(device: DeviceSummary, opts: { includeAll?: boolean } = {}): Promise<RawApp[]> {
