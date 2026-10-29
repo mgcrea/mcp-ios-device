@@ -255,14 +255,17 @@ export class DeviceClient {
    * system process that happens to share it.
    */
   async pidFor(device: DeviceSummary, bundleId: string): Promise<number | undefined> {
+    // Both spawns start together. The process list is only awaited once the
+    // app is known to be installed, so a failure reading it still surfaces
+    // only when it matters, as it did when the two ran in series.
+    const processes = this.devicectl.listProcesses(device.id);
+    processes.catch(() => {});
     const app = (await this.devicectl.listApps(device.id, { includeAll: true })).find(
       (candidate) => candidate.bundleIdentifier === bundleId,
     );
     if (!app?.url) return undefined;
     const prefix = app.url.endsWith("/") ? app.url : `${app.url}/`;
-    const process = (await this.devicectl.listProcesses(device.id)).find((candidate) =>
-      candidate.executable?.startsWith(prefix),
-    );
+    const process = (await processes).find((candidate) => candidate.executable?.startsWith(prefix));
     return process?.processIdentifier;
   }
 

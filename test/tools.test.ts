@@ -896,6 +896,30 @@ describe("app lifecycle", () => {
     expect(result.pid).toBe(4242);
   });
 
+  it("reads the app list and the process list at the same time", async () => {
+    // Two independent devicectl spawns; in series, every terminate waited for
+    // one before starting the other.
+    const base = execMock();
+    let inFlight = 0;
+    let peak = 0;
+    const exec: ExecImpl = async (path, args, timeoutMs) => {
+      const argv = args.join(" ");
+      if (!argv.includes("device info apps") && !argv.includes("device info processes")) {
+        return base(path, args, timeoutMs);
+      }
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inFlight -= 1;
+      return base(path, args, timeoutMs);
+    };
+    const result = await (
+      await connect(WRITES, { exec })
+    ).call("ios_device_terminate", { bundle_id: "io.mgcrea.Canopy" });
+    expect(result.terminated).toBe(true);
+    expect(peak).toBe(2);
+  });
+
   it("treats terminating something that is not running as success, not failure", async () => {
     const harness = await connect(WRITES, {
       exec: execMock({ "device info processes": { runningProcesses: [] } }),
