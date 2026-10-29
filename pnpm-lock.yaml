@@ -167,8 +167,8 @@ importers:
   .:
     dependencies:
       '@mgcrea/mcp-ios-core':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.4.0
+        version: 0.4.0
       '@modelcontextprotocol/server':
         specifier: ^2.4.0
         version: 2.4.0
@@ -372,8 +372,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@mgcrea/mcp-ios-core@0.3.0':
-    resolution: {integrity: sha512-wyh3KjCh/J/tV+l5JWvl14BCCvJzhwslct0rPyN0sC+qDR4yNMOOhTSY1AUvBqmSGEG4HdvpI02MviyEBDEKpQ==}
+  '@mgcrea/mcp-ios-core@0.4.0':
+    resolution: {integrity: sha512-ADGvpHgHDukQ8esTL1CyAJB8lMSXdIkNcQruD/OhySkAec5wBFJ+x/+rHwkSJ6zimlRCvgm85tss56HKmVjoug==}
     engines: {node: '>=22'}
     os: [darwin]
 
@@ -1501,7 +1501,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@mgcrea/mcp-ios-core@0.3.0':
+  '@mgcrea/mcp-ios-core@0.4.0':
     dependencies:
       '@modelcontextprotocol/server': 2.4.0
       zod: 4.6.7
