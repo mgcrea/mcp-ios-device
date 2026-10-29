@@ -412,6 +412,33 @@ describe("restarting the runner", () => {
     expect(spawned[0]?.env["IOS_DEVICE_ID"]).toBe("00008150-000A43CE1447801C");
   });
 
+  it("refuses before spawning when the device has no tunnel address to reach it on", async () => {
+    // A dormant device that did not wake: resolveDevice returns it, but the
+    // server has no route to the runner it would start.
+    const spawned: { command: string; args: string[]; env: Record<string, string> }[] = [];
+    const base = execMock();
+    const exec: ExecImpl = async (path, args, timeoutMs) => {
+      if (args.join(" ").includes("list devices")) {
+        const { tunnelIPAddress: _gone, ...props } = connectedDevice.connectionProperties;
+        const device = {
+          ...connectedDevice,
+          connectionProperties: { ...props, tunnelState: "unavailable" },
+        };
+        const jsonPath = args[args.indexOf("--json-output") + 1] as string;
+        await writeFile(jsonPath, JSON.stringify({ info: {}, result: { devices: [device] } }));
+        return { stdout: "", stderr: "" };
+      }
+      return base(path, args, timeoutMs);
+    };
+    const result = await (
+      await connect(WRITES, { exec, spawnRunner: spawnMock(spawned) })
+    ).call("ios_device_restart_wda", { device: DEVICE_ID, wait_seconds: 0 });
+
+    expect(result.isToolError).toBe(true);
+    expect(String(result.error)).toContain("tunnel address");
+    expect(spawned).toHaveLength(0);
+  });
+
   // Measured against Bastion, which runs this server off the node inside its own
   // bundle: nothing called `node` is on PATH, `wda.sh` parses devicectl's JSON
   // with it, and every spawn died with "node: command not found" while the tool

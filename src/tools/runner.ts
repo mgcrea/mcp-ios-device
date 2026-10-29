@@ -157,6 +157,11 @@ export const registerRunnerTools = (
           });
         }
 
+        // Before anything is stopped or started: a device with no tunnel
+        // address has no route to the runner this would start, and failing
+        // after the spawn lost its pid and log path while a retry killed it.
+        const wda = client.wda(target);
+
         // Stopped before starting, not because the port would clash — it would —
         // but because two runners on one device is a state where every tool
         // works intermittently depending on which one answers.
@@ -195,7 +200,6 @@ export const registerRunnerTools = (
           } as Record<string, string>,
         });
 
-        const wda = client.wda(target);
         const deadline = Date.now() + wait_seconds * 1000;
         let reachable = false;
         while (Date.now() < deadline) {
