@@ -17,11 +17,11 @@
 #   IOS_DEVICE_ID        CoreDevice identifier or UDID           (default: the only connected device)
 #   NODE                 node binary to parse JSON with          (default: node off PATH)
 #   WDA_DIR              checkout location                       (default: ~/.cache/mcp-ios-device/WebDriverAgent)
-#   WDA_REF              git tag to pin                          (default: v16.12.3)
+#   WDA_REF              git tag to pin                          (default: v16.15.3)
 set -euo pipefail
 
 WDA_DIR="${WDA_DIR:-$HOME/.cache/mcp-ios-device/WebDriverAgent}"
-WDA_REF="${WDA_REF:-v16.12.3}"
+WDA_REF="${WDA_REF:-v16.15.3}"
 DERIVED="${WDA_DIR}/.build"
 PORT="${IOS_DEVICE_WDA_PORT:-8100}"
 # Not always on PATH: a host that embeds its own runtime (Bastion runs the MCP
