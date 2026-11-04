@@ -39,25 +39,65 @@ export type DeviceSummary = {
  * what lets `ios_device_diagnostics` name which half is missing.
  */
 export const summarizeDevice = (device: RawDevice): DeviceSummary => {
-  const connection = device.connectionProperties ?? {};
-  const properties = device.deviceProperties ?? {};
-  const hardware = device.hardwareProperties ?? {};
+  const facts = deviceFacts(device);
   return {
     id: device.identifier,
-    name: properties.name,
-    model: hardware.marketingName ?? hardware.productType,
-    os: properties.osVersionNumber,
-    udid: hardware.udid,
+    name: facts.name,
+    model: facts.marketingName ?? facts.productType,
+    os: facts.osVersion,
+    udid: facts.udid,
     state:
-      connection.tunnelState === "connected"
+      facts.tunnelState === "connected"
         ? "connected"
-        : connection.pairingState === "paired"
+        : facts.pairingState === "paired"
           ? "paired"
           : "unavailable",
-    tunnel: { state: connection.tunnelState, address: connection.tunnelIPAddress },
-    developerMode: properties.developerModeStatus,
-    ddiUsable: properties.ddiServicesAvailable,
-    lastConnectionDate: connection.lastConnectionDate,
+    tunnel: { state: facts.tunnelState, address: facts.tunnelAddress },
+    developerMode: facts.developerMode,
+    ddiUsable: facts.ddiServicesAvailable,
+    lastConnectionDate: facts.lastConnectionDate,
+  };
+};
+
+/** Seconds between the Unix epoch and 2001-01-01 UTC, Foundation's reference date. */
+const REFERENCE_DATE_OFFSET_S = 978_307_200;
+
+/**
+ * The facts this server reads off a `list devices` entry, from devicectl's
+ * `properties` dictionary first and the deprecated `*Properties` blocks second.
+ *
+ * Field by field rather than block by block: Xcode 27 sends both, and the day
+ * the old blocks are removed is not a day to discover that one field had only
+ * ever been read from them. `ddiServicesAvailable` is the one fact with no
+ * counterpart in `properties`, so it ends up undefined then — which diagnostics
+ * already treats as "not known to be broken" rather than a failure.
+ */
+export const deviceFacts = (device: RawDevice) => {
+  const modern = device.properties ?? {};
+  const connection = device.connectionProperties ?? {};
+  const legacy = device.deviceProperties ?? {};
+  const hardware = { ...device.hardwareProperties, ...modern.hardware };
+  const since2001 = modern.connection?.lastConnectionDate;
+  const developerMode = modern.state?.developerModeStatus;
+  return {
+    platform: hardware.platform,
+    reality: hardware.reality,
+    udid: hardware.udid,
+    marketingName: hardware.marketingName,
+    productType: hardware.productType,
+    name: modern.state?.name ?? legacy.name,
+    osVersion: modern.software?.osVersionNumber?.stringValue ?? legacy.osVersionNumber,
+    developerMode: developerMode ? Object.keys(developerMode)[0] : legacy.developerModeStatus,
+    ddiServicesAvailable: legacy.ddiServicesAvailable,
+    pairingState: modern.connection?.pairingState ?? connection.pairingState,
+    tunnelState: modern.connection?.state ?? connection.tunnelState,
+    tunnelAddress: modern.connection?.tunnelIPAddressString ?? connection.tunnelIPAddress,
+    // ISO 8601 either way: `device.ts` orders wake-up candidates by comparing
+    // these as strings.
+    lastConnectionDate:
+      since2001 !== undefined
+        ? new Date((since2001 + REFERENCE_DATE_OFFSET_S) * 1000).toISOString()
+        : connection.lastConnectionDate,
   };
 };
 

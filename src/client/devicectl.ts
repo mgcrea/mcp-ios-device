@@ -31,8 +31,42 @@ export type DevicectlOptions = {
   logger?: Logger | undefined;
 };
 
+/**
+ * One `list devices` entry. Since Xcode 27 (JSON v5) it carries the same facts
+ * twice: the three `*Properties` blocks, each device flagged with a
+ * `_deprecationNotice` saying they "will be removed in a future release", and
+ * the `properties` dictionary that replaces them. Both are typed so that
+ * `deviceFacts` in `shape.ts` can read the new one and fall back to the old,
+ * which is all Xcode 26 has.
+ */
 export type RawDevice = {
   identifier: string;
+  properties?: {
+    connection?: {
+      pairingState?: string;
+      /** The old `tunnelState`, same values (`connected`, `disconnected`). */
+      state?: string;
+      tunnelIPAddressString?: string;
+      transportType?: string;
+      /** Seconds since 2001-01-01 UTC, where the old block had ISO 8601. */
+      lastConnectionDate?: number;
+    };
+    hardware?: {
+      udid?: string;
+      marketingName?: string;
+      productType?: string;
+      platform?: string;
+      deviceType?: string;
+      reality?: string;
+    };
+    software?: { osVersionNumber?: { stringValue?: string } };
+    state?: {
+      name?: string;
+      bootState?: string;
+      /** A Swift enum: `{ enabled: { mode: 1 } }`, `{ disabled: {} }` — the case is the key. */
+      developerModeStatus?: Record<string, unknown>;
+    };
+  };
   connectionProperties?: {
     pairingState?: string;
     tunnelState?: string;

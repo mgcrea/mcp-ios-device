@@ -14,6 +14,7 @@ import {
   ABSENT_CONFIG,
   connect,
   connectedDevice,
+  propertiesOnlyDevice,
   consoleMock,
   DEVICE_ID,
   execMock,
@@ -706,6 +707,88 @@ describe("device resolution", () => {
     ).call("ios_device_list_devices");
     const ids = (result.devices as { id: string }[]).map((d) => d.id);
     expect(ids).toEqual([DEVICE_ID]);
+  });
+});
+
+// Xcode 27's devicectl (JSON v5) marks `connectionProperties`,
+// `deviceProperties` and `hardwareProperties` deprecated on every device —
+// "will be removed in a future release. Use the 'properties' dictionary
+// instead." Reading only those would leave the server seeing no device at all
+// the day they go, since the platform filter would reject everything.
+describe("devicectl's properties dictionary", () => {
+  it("lists a device that carries only `properties`, with every summary field filled", async () => {
+    const modern = execMock({ "list devices": { devices: [propertiesOnlyDevice] } });
+    const result = await (await connect({}, { exec: modern })).call("ios_device_list_devices");
+    expect(result.devices).toEqual([
+      {
+        id: DEVICE_ID,
+        name: "Olivier's iPhone",
+        model: "iPhone 17 Pro Max",
+        os: "27.0.1",
+        udid: "00008150-000A43CE1447801C",
+        state: "connected",
+        tunnel: { state: "connected", address: "fdcc:2f05:e71b::1" },
+        developerMode: "enabled",
+        // Not in `properties` anywhere; `preparednessState` reads 3 in `list
+        // devices` and 7 in `device info details` for the same phone, so it
+        // is not a stand-in for it.
+        ddiUsable: undefined,
+        // 815437020 s after 2001-01-01, the same instant the deprecated block
+        // spelled "2026-11-03T22:17:00.000Z".
+        lastConnectionDate: "2026-11-03T22:17:00.000Z",
+      },
+    ]);
+  });
+
+  it("drives a properties-only device end to end", async () => {
+    const modern = execMock({ "list devices": { devices: [propertiesOnlyDevice] } });
+    const result = await (await connect({}, { exec: modern })).call("ios_device_screenshot");
+    expect(result.isToolError).toBeFalsy();
+    expect(result.hasImage).toBe(true);
+  });
+
+  it("leaves out simulators and watches told apart only through `properties.hardware`", async () => {
+    const mixed = execMock({
+      "list devices": {
+        devices: [
+          propertiesOnlyDevice,
+          {
+            identifier: "SIM",
+            properties: {
+              connection: { state: "connected" },
+              hardware: { platform: "iOS", reality: "simulated" },
+            },
+          },
+          {
+            identifier: "WATCH",
+            properties: { connection: { state: "connected" }, hardware: { platform: "watchOS" } },
+          },
+        ],
+      },
+    });
+    const result = await (await connect({}, { exec: mixed })).call("ios_device_list_devices");
+    expect((result.devices as { id: string }[]).map((d) => d.id)).toEqual([DEVICE_ID]);
+  });
+
+  it("reads Developer Mode off by its case name, so diagnostics still flags it", async () => {
+    const off = execMock({
+      "list devices": {
+        devices: [
+          {
+            ...propertiesOnlyDevice,
+            properties: {
+              ...propertiesOnlyDevice.properties,
+              state: {
+                ...propertiesOnlyDevice.properties.state,
+                developerModeStatus: { disabled: {} },
+              },
+            },
+          },
+        ],
+      },
+    });
+    const result = await (await connect({}, { exec: off })).call("ios_device_list_devices");
+    expect((result.devices as { developerMode: string }[])[0]?.developerMode).toBe("disabled");
   });
 });
 

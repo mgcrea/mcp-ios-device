@@ -42,6 +42,44 @@ export const connectedDevice = {
   },
 };
 
+/**
+ * The same phone as devicectl's `properties` dictionary spells it, and nothing
+ * else: what `list devices` returns once the three blocks its JSON v5 marks
+ * `_deprecationNotice` are gone. Measured on Xcode 27.2, iOS 27.0.1, tunnel up.
+ * The shape is not a rename — the OS version and Developer Mode are nested
+ * objects, and the connection date is seconds since 2001, not ISO 8601.
+ */
+export const propertiesOnlyDevice = {
+  identifier: DEVICE_ID,
+  properties: {
+    connection: {
+      authenticationType: "manualPairing",
+      lastConnectionDate: 815437020,
+      pairingState: "paired",
+      state: "connected",
+      transportType: "localNetwork",
+      tunnelIPAddressString: "fdcc:2f05:e71b::1",
+      tunnelTransportProtocol: "tcp",
+    },
+    hardware: {
+      deviceType: "iPhone",
+      marketingName: "iPhone 17 Pro Max",
+      platform: "iOS",
+      productType: "iPhone18,2",
+      reality: "physical",
+      udid: "00008150-000A43CE1447801C",
+    },
+    software: {
+      osVersionNumber: { components: [27, 0, 1, 0, 0], stringValue: "27.0.1" },
+    },
+    state: {
+      bootState: "booted",
+      developerModeStatus: { enabled: { mode: 1 } },
+      name: "Olivier's iPhone",
+    },
+  },
+};
+
 export const displaysResult = {
   backlightState: "activeOn",
   displays: [

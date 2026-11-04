@@ -6,7 +6,7 @@ import { ConsoleCaptures, type SpawnConsole } from "#/client/console";
 import { Devicectl, type DisplayInfo, type RawApp } from "#/client/devicectl";
 import { DeviceNotFoundError, IosDeviceError } from "#/client/errors";
 import { defaultExec, type ExecImpl, type Logger } from "#/client/exec";
-import { summarizeDevice, type DeviceSummary } from "#/client/shape";
+import { deviceFacts, summarizeDevice, type DeviceSummary } from "#/client/shape";
 import { deviceWdaRemedies, WdaClient } from "#/client/wda";
 
 /**
@@ -97,8 +97,8 @@ export class DeviceClient {
     // as an iOS device with `reality: "simulated"`; those belong to
     // mcp-ios-simulator, and a tunnel-less WDA lane cannot drive them anyway.
     const devices = raw
-      .filter((device) => device.hardwareProperties?.platform === "iOS")
-      .filter((device) => device.hardwareProperties?.reality !== "simulated")
+      .filter((device) => deviceFacts(device).platform === "iOS")
+      .filter((device) => deviceFacts(device).reality !== "simulated")
       .map(summarizeDevice);
     this.deviceCache = { at: Date.now(), devices };
     return devices;
